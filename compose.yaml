@@ -1,0 +1,21 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/python/Dockerfile
+    volumes:
+      - ./api:/api
+    ports:
+      - "8080:8080" # テスト用にポートを開放しています
+
+  nginx:
+    build:
+      context: .
+      dockerfile: infra/docker/nginx/Dockerfile
+    ports:
+      - "80:80"
+    volumes:
+      - ./front:/var/www/html
+      - ./infra/docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - api
