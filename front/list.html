@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>デイトレリスト</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    .header {
+      background: #1a1d2e;
+      border-bottom: 1px solid #2d3748;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #63b3ed;
+      letter-spacing: 0.05em;
+    }
+
+    .header-meta {
+      font-size: 13px;
+      color: #718096;
+    }
+
+    .container {
+      padding: 24px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: #1a1d2e;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+
+    .card-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #718096;
+      margin-bottom: 6px;
+    }
+
+    .card-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #e2e8f0;
+    }
+
+    .card-value.blue { color: #63b3ed; }
+    .card-value.green { color: #68d391; }
+    .card-value.yellow { color: #f6e05e; }
+
+    .reload-btn {
+      background: #2b6cb0;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 18px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .reload-btn:hover { background: #3182ce; }
+    .reload-btn:disabled { background: #4a5568; cursor: not-allowed; }
+
+    .table-wrapper {
+      background: #1a1d2e;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .table-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid #2d3748;
+    }
+
+    .table-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #a0aec0;
+    }
+
+    .item-count {
+      font-size: 12px;
+      color: #4a5568;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead th {
+      background: #161827;
+      padding: 10px 14px;
+      text-align: right;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #718096;
+      border-bottom: 1px solid #2d3748;
+      white-space: nowrap;
+    }
+
+    thead th:first-child,
+    thead th:nth-child(2),
+    thead th:nth-child(3) {
+      text-align: left;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid #1e2235;
+      transition: background 0.1s;
+    }
+
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #1e2235; }
+
+    td {
+      padding: 10px 14px;
+      text-align: right;
+      white-space: nowrap;
+      color: #cbd5e0;
+    }
+
+    td:first-child { text-align: left; font-weight: 600; color: #63b3ed; font-family: monospace; font-size: 14px; }
+    td:nth-child(2) { text-align: left; color: #e2e8f0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+    td:nth-child(3) { text-align: left; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .badge-prm { background: #2b4c7e; color: #90cdf4; }
+    .badge-std { background: #44337a; color: #b794f4; }
+    .badge-grt { background: #276749; color: #9ae6b4; }
+    .badge-etf { background: #7b341e; color: #fbd38d; }
+
+    .up { color: #68d391; }
+    .down { color: #fc8181; }
+    .neutral { color: #a0aec0; }
+
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 0;
+      color: #4a5568;
+      font-size: 14px;
+      gap: 10px;
+    }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid #4a5568;
+      border-top-color: #63b3ed;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-box {
+      background: #2d1515;
+      border: 1px solid #c53030;
+      border-radius: 8px;
+      padding: 16px 20px;
+      color: #fc8181;
+      font-size: 13px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+
+    function formatNumber(n) {
+      if (n == null) return '-';
+      return n.toLocaleString('ja-JP');
+    }
+
+    function formatAmount(n) {
+      if (n == null) return '-';
+      if (n >= 1e8) return (n / 1e8).toFixed(2) + '億';
+      if (n >= 1e4) return (n / 1e4).toFixed(1) + '万';
+      return n.toLocaleString('ja-JP');
+    }
+
+    function marketBadge(market) {
+      if (!market) return null;
+      const map = {
+        '東証PRM': 'badge-prm',
+        '東証STD': 'badge-std',
+        '東証GRT': 'badge-grt',
+        '東証ETF': 'badge-etf',
+      };
+      const cls = map[market] || 'badge-std';
+      return <span className={`badge ${cls}`}>{market}</span>;
+    }
+
+    function ChangeCell({ value }) {
+      if (value == null) return <td className="neutral">-</td>;
+      const cls = value > 0 ? 'up' : value < 0 ? 'down' : 'neutral';
+      const sign = value > 0 ? '+' : '';
+      return <td className={cls}>{sign}{value.toFixed(3)}%</td>;
+    }
+
+    function DiffCell({ value }) {
+      if (value == null) return <td className="neutral">-</td>;
+      const cls = value > 0 ? 'up' : value < 0 ? 'down' : 'neutral';
+      const sign = value > 0 ? '+' : '';
+      return <td className={cls}>{sign}{formatNumber(value)}</td>;
+    }
+
+    function App() {
+      const [data, setData] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState(null);
+      const [lastFetched, setLastFetched] = useState(null);
+
+      const fetchData = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const res = await fetch('/api/getdaytradelist');
+          if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          const json = await res.json();
+          setData(json);
+          setLastFetched(new Date().toLocaleTimeString('ja-JP'));
+        } catch (e) {
+          setError(e.message);
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      useEffect(() => { fetchData(); }, [fetchData]);
+
+      const items = data?.items ?? [];
+
+      return (
+        <>
+          <div className="header">
+            <h1>デイトレ銘柄リスト</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              {lastFetched && <span className="header-meta">最終更新: {lastFetched}</span>}
+              <button className="reload-btn" onClick={fetchData} disabled={loading}>
+                {loading ? '取得中…' : '再取得'}
+              </button>
+            </div>
+          </div>
+
+          <div className="container">
+            {error && <div className="error-box">取得エラー: {error}</div>}
+
+            {data && (
+              <div className="summary-cards">
+                <div className="card">
+                  <div className="card-label">銘柄数</div>
+                  <div className="card-value blue">{data.count}</div>
+                </div>
+                <div className="card">
+                  <div className="card-label">ページ数</div>
+                  <div className="card-value">{data.pages}</div>
+                </div>
+                <div className="card">
+                  <div className="card-label">最低売買代金</div>
+                  <div className="card-value yellow">{formatAmount(data.min_trading_value)}</div>
+                </div>
+                <div className="card">
+                  <div className="card-label">最低出来高増加率</div>
+                  <div className="card-value green">{data.min_volume_ratio}×</div>
+                </div>
+              </div>
+            )}
+
+            <div className="table-wrapper">
+              <div className="table-header-row">
+                <span className="table-title">スクリーニング結果</span>
+                {items.length > 0 && <span className="item-count">{items.length} 件表示</span>}
+              </div>
+
+              {loading && !data ? (
+                <div className="loading">
+                  <div className="spinner"></div>
+                  <span>データ取得中…</span>
+                </div>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>コード</th>
+                      <th>名称</th>
+                      <th>市場</th>
+                      <th>取引値</th>
+                      <th>前日比</th>
+                      <th>値上率(%)</th>
+                      <th>売買代金</th>
+                      <th>出来高</th>
+                      <th>出来高増加率</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <tr key={item['コード']}>
+                        <td>{item['コード']}</td>
+                        <td title={item['名称']}>{item['名称']}</td>
+                        <td>{marketBadge(item['市場'])}</td>
+                        <td>{formatNumber(item['取引値'])}</td>
+                        <DiffCell value={item['前日比']} />
+                        <ChangeCell value={item['値上率(%)']} />
+                        <td>{formatAmount(item['売買代金'])}</td>
+                        <td>{formatNumber(item['出来高'])}</td>
+                        <td className={item['出来高増加率'] >= 5 ? 'up' : ''}>
+                          {item['出来高増加率'] != null ? item['出来高増加率'].toFixed(3) + '×' : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                    {items.length === 0 && !loading && (
+                      <tr>
+                        <td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: '#4a5568' }}>
+                          データがありません
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+
+</html>
