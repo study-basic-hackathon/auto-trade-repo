@@ -185,6 +185,11 @@ def collect_day_trade_list(
 
 
 
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok"}
+
+
 # Nginxから /api/hello に転送されてきた場合の処理
 @app.get("/api/hello")
 def read_root():
