@@ -10,3 +10,6 @@ dependencies = [
     "requests>=2.33.1",
     "uvicorn[standard]",
 ]
+
+[dependency-groups]
+dev = []
