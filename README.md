@@ -19,13 +19,13 @@ S3_BUCKET_NAME=auto-trade-repo-123456789012-ap-northeast-1-an
 コンテナを起動する。
 
 ```bash
-docker compose up
+docker compose up -d
 ```
 
 すでにコンテナを起動済みの場合（依存パッケージの変更後など）はイメージを再ビルドする。
 
 ```bash
-docker compose up --build
+docker compose up -d --build
 ```
 
 localhostでアクセスできる。
