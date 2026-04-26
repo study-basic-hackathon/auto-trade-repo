@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, Query
 import json
+import os
 from typing import Any
+import boto3
 import requests
 import uvicorn
 
@@ -183,6 +185,27 @@ def collect_day_trade_list(
 
     return merged_rows
 
+
+
+@app.get("/api/sample/predictions")
+def sample_predictions() -> list[dict[str, Any]]:
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("ENDPOINT_URL"),
+        aws_access_key_id=os.environ.get("ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("SECRET_KEY"),
+    )
+    obj = s3.get_object(
+        Bucket=os.environ["S3_BUCKET_NAME"],
+        Key="predictions/n225.jsonl",
+    )
+    lines = obj["Body"].read().decode("utf-8").strip().splitlines()
+    return [json.loads(line) for line in lines]
+
+
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok"}
 
 
 # Nginxから /api/hello に転送されてきた場合の処理
