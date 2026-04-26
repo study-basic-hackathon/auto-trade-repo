@@ -9,9 +9,9 @@ services:
     ports:
       - "8080:8080" # テスト用にポートを開放しています
     environment:
-      - MINIO_ENDPOINT_URL=http://minio:9000
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin
+      - ENDPOINT_URL=http://minio:9000
+      - ACCESS_KEY=minioadmin
+      - SECRET_KEY=minioadmin
       - S3_BUCKET_NAME=${S3_BUCKET_NAME:-auto-trade-repo-123456789012-ap-northeast-1-an}
     depends_on:
       - minio

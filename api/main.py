@@ -191,9 +191,9 @@ def collect_day_trade_list(
 def sample_predictions() -> list[dict[str, Any]]:
     s3 = boto3.client(
         "s3",
-        endpoint_url=os.environ["MINIO_ENDPOINT_URL"],
-        aws_access_key_id=os.environ["MINIO_ACCESS_KEY"],
-        aws_secret_access_key=os.environ["MINIO_SECRET_KEY"],
+        endpoint_url=os.environ.get("ENDPOINT_URL"),
+        aws_access_key_id=os.environ.get("ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("SECRET_KEY"),
     )
     obj = s3.get_object(
         Bucket=os.environ["S3_BUCKET_NAME"],
