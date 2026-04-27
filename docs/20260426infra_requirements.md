@@ -2,17 +2,19 @@
 
 ## 1. プロジェクト概要
 
-ハッカソン向けPoC。日経225関連銘柄の翌営業日株価予測値を、Webブラウザから閲覧できるサービス。バックエンドは事前にバッチ処理で生成された予測結果（S3に保存）を返却するシンプルなREST APIを提供する。
+ハッカソン向けPoC。日経225および国内ETF銘柄の翌営業日株価予測値を、Webブラウザから閲覧できるサービス。バックエンドは事前にバッチ処理で生成された予測結果（S3に保存）を返却するシンプルなREST APIを提供する。
 
 **スコープ外（今回は構築しない）**
 - 機械学習モデルの学習バッチ
-- 日次推論バッチ（予測結果JSONLの生成処理）
 - ユーザー認証・認可
 - WAF、Shield Advanced
 - 独自ドメイン取得とACM証明書発行
 - 予測精度モニタリング
 
-上記は手動またはローカルで実行し、生成された`.jsonl`/`.pkl`ファイルをS3に手動アップロードする運用とする。
+**スコープ内（本インフラで動作させる）**
+- 日次推論バッチ（ONNXモデルを使用して予測結果JSONLを生成し、S3にアップロード）
+
+ONNXモデル（`.onnx`）はローカルで学習・生成後にS3へ手動アップロードする。JSONLファイルは推論バッチが自動生成する。
 
 ## 2. アーキテクチャ全体図
 
@@ -146,14 +148,14 @@ infra/docker/fastapi/Dockerfileを参照
   ```
   s3://{bucket}/
   ├── predictions/
-  │   ├── n225.jsonl       # 日経225指数の予測履歴
-  │   ├── 1617.jsonl       # TOPIX-17 食品（配当込み）
-  │   └── ...              # 他銘柄（追加予定）
+  │   ├── n225.jsonl       # 日経225指数の予測履歴（推論バッチが生成）
+  │   ├── 1617.jsonl       # TOPIX-17 食品 ETF（推論バッチが生成）
+  │   └── ...              # 他ETF銘柄（追加予定）
   └── models/
       ├── n225.2026-04-01.onnx
       ├── 1617.2026-04-01.onnx
       ├── 1617.2026-04-25.onnx
-      └── {ticker}.{version}.onnx
+      └── {ticker}.{version}.onnx   # 手動アップロード
 
   ```
 - **JSONLの1行スキーマ（FastAPIが返却するレスポンスと同一構造）**:
@@ -173,7 +175,7 @@ infra/docker/fastapi/Dockerfileを参照
 #### Task Execution Role
 - AWS管理ポリシー `AmazonECSTaskExecutionRolePolicy` をアタッチ
 
-#### Task Role（fastapiコンテナがS3にアクセスするため）
+#### Task Role（fastapiコンテナおよび推論バッチがS3にアクセスするため）
 - カスタムポリシー、以下のActionを許可:
   ```json
   {
@@ -187,6 +189,16 @@ infra/docker/fastapi/Dockerfileを参照
         ],
         "Resource": [
           "arn:aws:s3:::{bucket-name}",
+          "arn:aws:s3:::{bucket-name}/predictions/*",
+          "arn:aws:s3:::{bucket-name}/models/*"
+        ]
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:PutObject"
+        ],
+        "Resource": [
           "arn:aws:s3:::{bucket-name}/predictions/*"
         ]
       }
@@ -239,27 +251,61 @@ infra/docker/fastapi/Dockerfileを参照
 
 | 対象 | 出力先 | 保持期間 |
 |---|---|---|
-| nginxアクセスログ・エラーログ | CloudWatch Logs `/ecs/n225-predictor/nginx` | 7日 |
-| FastAPIログ | CloudWatch Logs `/ecs/n225-predictor/fastapi` | 7日 |
-| ALBアクセスログ | CloudWatch Logs `/ecs/n225-predictor/alb` | 7日 |
-| CloudFrontアクセスログ | CloudWatch Logs `/ecs/n225-predictor/cloudfront` | 7日 |
+| nginxアクセスログ・エラーログ | CloudWatch Logs `/ecs/auto-trade-repo/nginx` | 7日 |
+| FastAPIログ | CloudWatch Logs `/ecs/auto-trade-repo/fastapi` | 7日 |
+| ALBアクセスログ | CloudWatch Logs `/ecs/auto-trade-repo/alb` | 7日 |
+| CloudFrontアクセスログ | CloudWatch Logs `/ecs/auto-trade-repo/cloudfront` | 7日 |
 | S3アクセスログ | 出力しない | - |
 
 ハッカソン期間中のデバッグに使えればよく、長期保存・分析用途は考慮しない。
 
-## 6. デプロイ手順（IaC実装者向けの想定フロー）
+## 6. 日次推論バッチ
+
+### 6.1 概要
+
+毎営業日の市場クローズ後（例: 16:00 JST）に推論バッチを実行し、翌営業日の予測結果JSONLをS3に書き込む。
+
+### 6.2 実行方式
+
+- **実行基盤**: ECS Fargate（既存クラスタを流用）またはEventBridge Scheduler + ECS RunTask
+- **対象銘柄**: 日経225および登録済みETF銘柄（`models/`配下に`.onnx`が存在するもの）
+- **処理フロー**:
+  1. S3の`models/{ticker}.{version}.onnx`を取得
+  2. 最新の市場データを取得（Yahoo Finance等）
+  3. ONNXモデルで推論を実行
+  4. 予測結果を`predictions/{ticker}.jsonl`に追記（S3 PutObject）
+
+### 6.3 必要なIAM権限（Task Role追加分）
+
+既存のTask Roleに以下を追加:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "s3:PutObject"
+  ],
+  "Resource": [
+    "arn:aws:s3:::{bucket-name}/predictions/*"
+  ]
+}
+```
+
+## 7. デプロイ手順（IaC実装者向けの想定フロー）
 
 1. **基盤リソース作成**: VPC、サブネット、Security Group、VPC Endpoints、IAM、S3、ECR
 2. **手動操作**: ローカルで`docker build`し、ECRにイメージをpush
-3. **アプリケーションリソース作成**: ECS Cluster、Task Definition、ALB、Target Group、ECS Service
-4. **CloudFront作成**: VPC Originを指定したDistribution
-5. **動作確認**: CloudFrontのドメイン（`*.cloudfront.net`）にブラウザでアクセス
+3. **手動操作**: 学習済みONNXモデル（`{ticker}.{version}.onnx`）をS3の`models/`にアップロード
+4. **アプリケーションリソース作成**: ECS Cluster、Task Definition、ALB、Target Group、ECS Service
+5. **スケジューラ設定**: EventBridge Schedulerで推論バッチを日次トリガー
+6. **CloudFront作成**: VPC Originを指定したDistribution
+7. **動作確認**: CloudFrontのドメイン（`*.cloudfront.net`）にブラウザでアクセス
 
-## 7. IaCツールの選定
+## 8. IaCツールの選定
 
 Terraform
 
-## 8. 推定コスト感
+## 9. 推定コスト感
 
 ハッカソン期間中の連続稼働を想定した概算。
 
