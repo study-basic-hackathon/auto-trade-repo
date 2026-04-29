@@ -2,6 +2,50 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 # ================================================================
+# IAM（推論タスク専用ロール）
+# ================================================================
+
+resource "aws_iam_role" "task" {
+  name = "${var.project}-inference-task-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+
+  tags = { Name = "${var.project}-inference-task-role" }
+}
+
+resource "aws_iam_role_policy" "task_s3" {
+  name = "${var.project}-inference-task-s3-policy"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["s3:GetObject", "s3:ListBucket"]
+        Resource = [
+          var.s3_bucket_arn,
+          "${var.s3_bucket_arn}/predictions/*",
+          "${var.s3_bucket_arn}/models/*",
+        ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = ["${var.s3_bucket_arn}/predictions/*"]
+      }
+    ]
+  })
+}
+
+# ================================================================
 # CloudWatch Logs
 # ================================================================
 
@@ -13,7 +57,7 @@ resource "aws_cloudwatch_log_group" "this" {
 
 # ================================================================
 # ECS タスク定義（推論バッチ用）
-# app モジュールのクラスタ・IAMロールを共用する
+# クラスタは app モジュールと共用、タスクロールは推論専用
 # ================================================================
 
 resource "aws_ecs_task_definition" "this" {
@@ -23,7 +67,7 @@ resource "aws_ecs_task_definition" "this" {
   cpu                      = 512
   memory                   = 1024
   execution_role_arn       = var.task_execution_role_arn
-  task_role_arn            = var.task_role_arn
+  task_role_arn            = aws_iam_role.task.arn
 
   container_definitions = jsonencode([
     {
@@ -89,7 +133,7 @@ resource "aws_iam_role_policy" "scheduler" {
       {
         Effect   = "Allow"
         Action   = ["iam:PassRole"]
-        Resource = [var.task_execution_role_arn, var.task_role_arn]
+        Resource = [var.task_execution_role_arn, aws_iam_role.task.arn]
       }
     ]
   })

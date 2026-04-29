@@ -18,8 +18,8 @@ variable "task_execution_role_arn" {
   type        = string
 }
 
-variable "task_role_arn" {
-  description = "ECSタスクロールARN（appモジュールのoutput）"
+variable "s3_bucket_arn" {
+  description = "予測結果・モデルを格納するS3バケットARN"
   type        = string
 }
 

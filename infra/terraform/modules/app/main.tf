@@ -37,7 +37,6 @@ resource "aws_iam_role" "task" {
   tags = { Name = "${var.project}-ecs-task-role" }
 }
 
-# inference モジュールも同じロールを使うため PutObject も付与
 resource "aws_iam_role_policy" "task_s3" {
   name = "${var.project}-ecs-task-s3-policy"
   role = aws_iam_role.task.id
@@ -53,11 +52,6 @@ resource "aws_iam_role_policy" "task_s3" {
           "${var.s3_bucket_arn}/predictions/*",
           "${var.s3_bucket_arn}/models/*",
         ]
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["s3:PutObject"]
-        Resource = ["${var.s3_bucket_arn}/predictions/*"]
       }
     ]
   })

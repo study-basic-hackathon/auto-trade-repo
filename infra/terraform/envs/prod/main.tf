@@ -91,9 +91,9 @@ module "inference" {
   aws_region              = var.aws_region
   cluster_arn             = module.app.cluster_arn
   task_execution_role_arn = module.app.task_execution_role_arn
-  task_role_arn           = module.app.task_role_arn
   image_uri               = var.api_image_uri
   s3_bucket_name          = module.s3.bucket_name
+  s3_bucket_arn           = module.s3.bucket_arn
   private_subnet_ids      = module.network.private_subnet_ids
   ecs_sg_id               = module.network.ecs_sg_id
 }
