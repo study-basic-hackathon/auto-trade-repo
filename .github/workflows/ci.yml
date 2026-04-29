@@ -7,6 +7,8 @@ on:
 
 jobs:
   lint:
+    # develop → main の PR のみ実行（個人ブランチからの PR は対象外）
+    if: github.event.pull_request.head.ref == 'develop'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

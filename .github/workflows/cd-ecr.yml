@@ -1,12 +1,16 @@
 name: CD - Push to ECR
 
 on:
-  push:
+  pull_request:
+    types:
+      - closed
     branches:
       - main
 
 jobs:
   push:
+    # develop → main の PR がマージされた時のみ実行
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'develop'
     runs-on: ubuntu-latest
     permissions:
       id-token: write   # OIDC トークン取得に必要
