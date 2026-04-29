@@ -60,6 +60,19 @@ module "ecr" {
 }
 
 # ================================================================
+# oidc: GitHub Actions が ECR に push するための OIDC 認証基盤
+#       ecr と同時に apply すれば CD パイプラインが即座に使用可能になる
+# ================================================================
+
+module "oidc" {
+  source = "../../modules/oidc"
+
+  project     = var.project
+  github_org  = var.github_org
+  github_repo = var.github_repo
+}
+
+# ================================================================
 # app: IAM・ALB・ECS・CloudFront のアプリ一式
 #      S3 にファイルさえあれば inference がなくても動作する
 # ================================================================

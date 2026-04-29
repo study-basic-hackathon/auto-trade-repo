@@ -21,6 +21,17 @@ variable "environment" {
 #   1. nginx_image_uri / api_image_uri を仮URI（例: nginx:latest）で terraform apply
 #   2. 出力された ECR URL にイメージをpush
 #   3. 正しいURIに更新して再度 terraform apply
+variable "github_org" {
+  description = "GitHubオーナー名（ユーザー名またはOrg名）"
+  type        = string
+}
+
+variable "github_repo" {
+  description = "GitHubリポジトリ名"
+  type        = string
+  default     = "auto-trade-repo"
+}
+
 variable "nginx_image_uri" {
   description = "nginx ECRイメージURI（例: xxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/nginx:latest）"
   type        = string

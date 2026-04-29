@@ -10,10 +10,15 @@ output "cloudfront_distribution_id" {
 
 output "nginx_ecr_repository_url" {
   description = "nginx ECRリポジトリURL（docker push 先）"
-  value       = module.app.nginx_ecr_repository_url
+  value       = module.ecr.nginx_repository_url
 }
 
 output "api_ecr_repository_url" {
   description = "api ECRリポジトリURL（docker push 先）"
-  value       = module.app.api_ecr_repository_url
+  value       = module.ecr.api_repository_url
+}
+
+output "github_actions_role_arn" {
+  description = "GitHub Actions OIDC ロール ARN（GitHub Secrets の AWS_OIDC_ROLE_ARN に設定する）"
+  value       = module.oidc.github_actions_role_arn
 }

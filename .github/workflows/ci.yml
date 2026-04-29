@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dockerfile lint (api)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: infra/docker/python/Dockerfile
+
+      - name: Dockerfile lint (nginx)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: infra/docker/nginx/Dockerfile
+
+      - name: Dockerfile lint (inference)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: infra/docker/inference/Dockerfile
