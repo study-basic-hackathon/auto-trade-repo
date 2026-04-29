@@ -52,3 +52,15 @@ jobs:
             .
           docker push "$IMAGE_URI:latest"
           docker push "$IMAGE_URI:${{ github.sha }}"
+
+      - name: inference イメージをビルド・プッシュ
+        env:
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/auto-trade-repo/inference
+        run: |
+          docker build \
+            -t "$IMAGE_URI:latest" \
+            -t "$IMAGE_URI:${{ github.sha }}" \
+            -f infra/docker/inference/Dockerfile \
+            .
+          docker push "$IMAGE_URI:latest"
+          docker push "$IMAGE_URI:${{ github.sha }}"

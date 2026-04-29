@@ -4,11 +4,14 @@ on:
   pull_request:
     branches:
       - main
+      - develop
 
 jobs:
   lint:
-    # develop → main の PR のみ実行（個人ブランチからの PR は対象外）
-    if: github.event.pull_request.head.ref == 'develop'
+    # develop への PR（任意ブランチから）、または develop → main の PR のみ実行
+    if: |
+      github.event.pull_request.base.ref == 'develop' ||
+      (github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

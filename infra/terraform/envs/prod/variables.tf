@@ -41,3 +41,8 @@ variable "api_image_uri" {
   description = "api ECRイメージURI（例: xxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/api:latest）"
   type        = string
 }
+
+variable "inference_image_uri" {
+  description = "inference ECRイメージURI（例: xxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/inference:latest）"
+  type        = string
+}

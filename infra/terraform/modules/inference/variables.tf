@@ -44,9 +44,9 @@ variable "ecs_sg_id" {
 }
 
 variable "command" {
-  description = "推論コンテナの起動コマンド（実装に合わせて変更すること）"
+  description = "推論コンテナの起動コマンド（Dockerfile の CMD に合わせて設定）"
   type        = list(string)
-  default     = ["python", "-m", "inference.batch"]
+  default     = ["python", "run.py"]
 }
 
 variable "schedule_expression" {

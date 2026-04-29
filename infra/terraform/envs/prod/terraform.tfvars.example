@@ -11,5 +11,6 @@ github_repo = "auto-trade-repo"
 #   2. output の github_actions_role_arn を GitHub Secrets の AWS_OIDC_ROLE_ARN に設定
 #   3. main ブランチに push → GitHub Actions が ECR にイメージを push
 #   4. 下記 URI を ECR の実際の URL に更新して terraform apply
-nginx_image_uri = "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/nginx:latest"
-api_image_uri   = "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/api:latest"
+nginx_image_uri     = "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/nginx:latest"
+api_image_uri       = "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/api:latest"
+inference_image_uri = "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/inference:latest"
