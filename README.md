@@ -69,6 +69,67 @@ localhostでアクセスできる。
 
 サンプルの `n225.jsonl` は `samples/predictions/n225.jsonl` にある。Webコンソールの `predictions/` フォルダにアップロードして使用する。
 
+## AWSインフラデプロイ
+
+### 前提条件
+
+- Terraform >= 1.10
+- AWS CLI（`aws configure` で認証済み）
+- tfstate 用 S3 バケットが作成済み（`tfstate-{ACCOUNT_ID}-ap-northeast-1-an`）
+
+### 初回セットアップ
+
+```bash
+cd infra/terraform/envs/prod
+
+# terraform.tfvars を作成
+cp terraform.tfvars.example terraform.tfvars
+# terraform.tfvars を編集して github_org などを設定
+```
+
+```bash
+# 初期化（バケット名は実際のアカウントIDに置き換える）
+terraform init -backend-config="bucket=tfstate-{ACCOUNT_ID}-ap-northeast-1-an"
+```
+
+### 初回デプロイ手順
+
+ECR が存在しないと GitHub Actions がイメージを push できないため、最初に ECR と OIDC だけを先に apply する。
+
+**Step 1: ECR・OIDC を先に apply**
+
+```bash
+terraform apply -target=module.ecr -target=module.oidc
+```
+
+**Step 2: GitHub Secrets を設定**
+
+| Secret 名 | 設定する値 |
+|---|---|
+| `AWS_OIDC_ROLE_ARN` | `terraform output github_actions_role_arn` の出力値 |
+| `AWS_REGION` | `ap-northeast-1` |
+
+**Step 3: main ブランチに push → GitHub Actions が ECR にイメージを自動登録**
+
+**Step 4: `terraform.tfvars` のイメージ URI を ECR の実際の URL に更新**
+
+```
+nginx_image_uri = "{ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/nginx:latest"
+api_image_uri   = "{ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/api:latest"
+```
+
+**Step 5: 全体 apply**
+
+```bash
+terraform apply
+```
+
+### 2回目以降
+
+コードを変更して main に push すると GitHub Actions が自動で ECR にイメージを push する。ECS タスク定義の更新は別途 `terraform apply` が必要。
+
+---
+
 ### 推論コンテナ（inference）
 
 推論コンテナはS3からモデルを取得して推論を実行し、結果を `predictions/{ticker}.jsonl` に追記して終了する。

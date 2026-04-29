@@ -94,3 +94,48 @@ JSONL の 1 行スキーマ:
 - Web コンソール: http://localhost:9001（ユーザー名/パスワード: `minioadmin`）
 - バケット作成後、`.env` の `S3_BUCKET_NAME` と同じ名前で作成すること
 - サンプルデータ: `samples/predictions/n225.jsonl` → バケットの `predictions/` にアップロード
+
+## Terraform
+
+### モジュール構成
+
+`infra/terraform/envs/prod/main.tf` が以下のモジュールを全て呼び出す単一レイヤー構成。
+
+| モジュール | 役割 |
+|---|---|
+| `modules/network` | VPC・サブネット・SG・VPC Endpoint |
+| `modules/s3` | 予測結果・モデル用 S3 バケット |
+| `modules/ecr` | nginx・api の ECR リポジトリ |
+| `modules/oidc` | GitHub Actions OIDC 認証用 IAM ロール |
+| `modules/app` | ALB・ECS Fargate・CloudFront |
+| `modules/inference` | 推論バッチ（ECS タスク定義 + EventBridge スケジューラ） |
+
+### 初回デプロイ順序
+
+ECR が存在しないと GitHub Actions がイメージを push できないため、`-target` で順序を制御する。
+
+```bash
+# 1. ECR と OIDC だけ先に apply
+terraform apply -target=module.ecr -target=module.oidc
+
+# 2. output の github_actions_role_arn を GitHub Secrets（AWS_OIDC_ROLE_ARN）に設定
+
+# 3. main push → GitHub Actions が ECR にイメージを push
+
+# 4. terraform.tfvars の nginx_image_uri / api_image_uri を実際の ECR URI に更新して全体 apply
+terraform apply
+```
+
+### GitHub Actions
+
+| ワークフロー | トリガー | 内容 |
+|---|---|---|
+| `.github/workflows/ci.yml` | PR → main | Dockerfile を Hadolint で lint |
+| `.github/workflows/cd-ecr.yml` | push → main | nginx・api イメージをビルドして ECR に push |
+
+CD に必要な GitHub Secrets:
+
+| Secret 名 | 値 |
+|---|---|
+| `AWS_OIDC_ROLE_ARN` | `terraform output github_actions_role_arn` の出力値 |
+| `AWS_REGION` | `ap-northeast-1` |
