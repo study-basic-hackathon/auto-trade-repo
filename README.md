@@ -102,9 +102,11 @@ ECR が存在しないと GitHub Actions がイメージを push できないた
 terraform apply -target=module.ecr -target=module.oidc
 ```
 
-**Step 2: GitHub Secrets を設定**
+**Step 2: GitHub Repository Variables を設定**
 
-| Secret 名 | 設定する値 |
+GitHub リポジトリの Settings → Secrets and variables → Actions → Variables タブ → Repository variables に追加する。
+
+| Variable 名 | 設定する値 |
 |---|---|
 | `AWS_OIDC_ROLE_ARN` | `terraform output github_actions_role_arn` の出力値 |
 | `AWS_REGION` | `ap-northeast-1` |
@@ -114,8 +116,9 @@ terraform apply -target=module.ecr -target=module.oidc
 **Step 4: `terraform.tfvars` のイメージ URI を ECR の実際の URL に更新**
 
 ```
-nginx_image_uri = "{ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/nginx:latest"
-api_image_uri   = "{ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/api:latest"
+nginx_image_uri     = "{ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/nginx:latest"
+api_image_uri       = "{ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/api:latest"
+inference_image_uri = "{ACCOUNT_ID}.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/inference:latest"
 ```
 
 **Step 5: 全体 apply**

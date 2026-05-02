@@ -105,7 +105,7 @@ JSONL の 1 行スキーマ:
 |---|---|
 | `modules/network` | VPC・サブネット・SG・VPC Endpoint |
 | `modules/s3` | 予測結果・モデル用 S3 バケット |
-| `modules/ecr` | nginx・api の ECR リポジトリ |
+| `modules/ecr` | nginx・api・inference の ECR リポジトリ |
 | `modules/oidc` | GitHub Actions OIDC 認証用 IAM ロール |
 | `modules/app` | ALB・ECS Fargate・CloudFront |
 | `modules/inference` | 推論バッチ（ECS タスク定義 + EventBridge スケジューラ） |
@@ -118,11 +118,11 @@ ECR が存在しないと GitHub Actions がイメージを push できないた
 # 1. ECR と OIDC だけ先に apply
 terraform apply -target=module.ecr -target=module.oidc
 
-# 2. output の github_actions_role_arn を GitHub Secrets（AWS_OIDC_ROLE_ARN）に設定
+# 2. output の github_actions_role_arn を GitHub Repository Variables（AWS_OIDC_ROLE_ARN）に設定
 
-# 3. main push → GitHub Actions が ECR にイメージを push
+# 3. develop → main の PR をマージ → GitHub Actions が ECR にイメージを push
 
-# 4. terraform.tfvars の nginx_image_uri / api_image_uri を実際の ECR URI に更新して全体 apply
+# 4. terraform.tfvars の nginx_image_uri / api_image_uri / inference_image_uri を実際の ECR URI に更新して全体 apply
 terraform apply
 ```
 
@@ -130,12 +130,12 @@ terraform apply
 
 | ワークフロー | トリガー | 内容 |
 |---|---|---|
-| `.github/workflows/ci.yml` | PR → main | Dockerfile を Hadolint で lint |
-| `.github/workflows/cd-ecr.yml` | push → main | nginx・api イメージをビルドして ECR に push |
+| `.github/workflows/ci.yml` | PR → develop または develop → main PR | Dockerfile を Hadolint で lint |
+| `.github/workflows/cd-ecr.yml` | develop → main PR のマージ | nginx・api・inference イメージをビルドして ECR に push |
 
-CD に必要な GitHub Secrets:
+CD に必要な GitHub Repository Variables（Settings → Secrets and variables → Actions → Variables）:
 
-| Secret 名 | 値 |
+| Variable 名 | 値 |
 |---|---|
 | `AWS_OIDC_ROLE_ARN` | `terraform output github_actions_role_arn` の出力値 |
 | `AWS_REGION` | `ap-northeast-1` |
