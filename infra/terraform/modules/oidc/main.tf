@@ -3,13 +3,13 @@ data "aws_region" "current" {}
 
 locals {
   account_id = data.aws_caller_identity.current.account_id
-  region     = data.aws_region.current.name
+  region     = data.aws_region.current.region
 }
 
 # GitHub Actions OIDC プロバイダ（AWSアカウント内に1つだけ存在すればよい）
 resource "aws_iam_openid_connect_provider" "github" {
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
   # GitHub の OIDC thumbprint（公式ドキュメント記載の値）
   thumbprint_list = [
     "6938fd4d98bab03faadb97b34396831e3780aea1",

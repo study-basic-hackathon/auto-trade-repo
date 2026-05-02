@@ -3,7 +3,7 @@ project     = "auto-trade-repo"
 environment = "prod"
 
 # GitHubリポジトリ情報（OIDC認証用）
-github_org  = "your-github-username-or-org"
+github_org  = "study-basic-hackathon"
 github_repo = "auto-trade-repo"
 
 # デプロイ手順:

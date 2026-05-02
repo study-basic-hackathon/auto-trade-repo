@@ -52,7 +52,7 @@ resource "aws_iam_role_policy" "task_s3" {
 resource "aws_cloudwatch_log_group" "this" {
   name              = "/ecs/${var.project}/inference"
   retention_in_days = 7
-  tags = { Name = "/ecs/${var.project}/inference" }
+  tags              = { Name = "/ecs/${var.project}/inference" }
 }
 
 # ================================================================
@@ -77,7 +77,7 @@ resource "aws_ecs_task_definition" "this" {
       command   = var.command
       environment = [
         { name = "S3_BUCKET_NAME", value = var.s3_bucket_name },
-        { name = "AWS_REGION",     value = var.aws_region },
+        { name = "AWS_REGION", value = var.aws_region },
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -124,7 +124,7 @@ resource "aws_iam_role_policy" "scheduler" {
         Action = ["ecs:RunTask"]
         # タスク定義ファミリー内の全リビジョンを許可
         Resource = [
-          "arn:aws:ecs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:task-definition/${aws_ecs_task_definition.this.family}:*"
+          "arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task-definition/${aws_ecs_task_definition.this.family}:*"
         ]
         Condition = {
           ArnLike = { "ecs:cluster" = var.cluster_arn }
