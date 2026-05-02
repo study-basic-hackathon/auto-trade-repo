@@ -60,6 +60,7 @@ jobs:
           docker build \
             -t "$IMAGE_URI:latest" \
             -t "$IMAGE_URI:${{ github.sha }}" \
+            --build-arg USE_REAL_INFERENCE=${{ vars.USE_REAL_INFERENCE }} \
             -f infra/docker/inference/Dockerfile \
             .
           docker push "$IMAGE_URI:latest"
