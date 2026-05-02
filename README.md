@@ -135,43 +135,67 @@ terraform apply
 
 ### 推論コンテナ（inference）
 
-推論コンテナはS3からモデルを取得して推論を実行し、結果を `predictions/{ticker}.jsonl` に追記して終了する。
-
-**イメージのビルド**
-
-```bash
-docker build -f infra/docker/inference/Dockerfile -t inference .
-```
+推論コンテナはS3からモデルを取得して推論を実行し、結果を `predictions/{ticker}.jsonl` に追記して終了する。バッチ動作のため `docker run` で単発実行する。
 
 **実行スクリプトについて**
 
 | ファイル | 用途 |
 |---|---|
-| `run.py` | 本番用。推論ロジックはここに実装する。Dockerfile の `CMD` で実行される。 |
-| `run.sample.py` | 動作確認用のサンプル実装。イメージには含まれない。 |
+| `run.py` | 本番用。推論ロジックはここに実装する。 |
+| `run.sample.py` | 動作確認用のサンプル実装。 |
 
-推論ロジックを実装する場合は `run.py` を編集すること。`run.sample.py` は参考実装であり、変更する必要はない。
+どちらを `entry.py`（コンテナ内で実行されるスクリプト）として使用するかは、ビルド時の `USE_REAL_INFERENCE` フラグで切り替える。
 
-**本番想定の実行コマンド（1日分）**
+| `USE_REAL_INFERENCE` | 使用されるスクリプト |
+|---|---|
+| `false`（デフォルト） | `run.sample.py` |
+| `true` | `run.py` |
+
+**イメージのビルド（ローカル）**
+
+```bash
+# run.sample.py を使う（デフォルト、--build-arg 不要）
+docker build -f infra/docker/inference/Dockerfile -t inference .
+
+# run.py を使う
+docker build --build-arg USE_REAL_INFERENCE=true -f infra/docker/inference/Dockerfile -t inference .
+```
+
+**GitHub Actions での切り替え**
+
+GitHub リポジトリの Settings → Secrets and variables → Actions → Variables に以下を追加する。
+
+| Variable 名 | 値 |
+|---|---|
+| `USE_REAL_INFERENCE` | `false`（サンプル）/ `true`（本番） |
+
+**実行コマンド（1日分）**
 
 環境変数 `TARGET_DATE` で推論対象日付を指定する。省略すると今日（JST）が使われる。
 
 ```bash
-docker run --rm --network auto-trade-repo_default -e S3_BUCKET_NAME=auto-trade-repo-123456789012-ap-northeast-1-an -e ENDPOINT_URL=http://minio:9000 -e ACCESS_KEY=minioadmin -e SECRET_KEY=minioadmin -e TARGET_DATE=2026-04-27 inference
+docker run --rm --network auto-trade-repo_default \
+  -e S3_BUCKET_NAME=auto-trade-repo-123456789012-ap-northeast-1-an \
+  -e ENDPOINT_URL=http://minio:9000 \
+  -e ACCESS_KEY=minioadmin \
+  -e SECRET_KEY=minioadmin \
+  -e TARGET_DATE=2026-04-27 \
+  inference
 ```
 
-**動作確認用（run.sample.py を使う場合）**
-
-`-v` でホストの `run.sample.py` をコンテナにマウントし、末尾のコマンドで上書き実行する。
-
-```bash
-docker run --rm --network auto-trade-repo_default -v $(pwd)/inference/run.sample.py:/app/run.sample.py -e S3_BUCKET_NAME=auto-trade-repo-123456789012-ap-northeast-1-an -e ENDPOINT_URL=http://minio:9000 -e ACCESS_KEY=minioadmin -e SECRET_KEY=minioadmin -e TARGET_DATE=2026-04-27 inference python run.sample.py
-```
-
-**動作確認用（日付範囲のループ）**
+**実行コマンド（日付範囲のループ）**
 
 以下は4月1日〜5月31日の全日付分を連続実行する例。
 
 ```bash
-python3 -c "from datetime import date,timedelta; d,e=date(2026,4,1),date(2026,5,31); [print(d+timedelta(i)) for i in range((e-d).days+1)]" | while read d; do docker run --rm --network auto-trade-repo_default -v $(pwd)/inference/run.sample.py:/app/run.sample.py -e S3_BUCKET_NAME=auto-trade-repo-123456789012-ap-northeast-1-an -e ENDPOINT_URL=http://minio:9000 -e ACCESS_KEY=minioadmin -e SECRET_KEY=minioadmin -e TARGET_DATE="$d" inference python run.sample.py; done
+python3 -c "from datetime import date,timedelta; d,e=date(2026,4,1),date(2026,5,31); [print(d+timedelta(i)) for i in range((e-d).days+1)]" | \
+  while read d; do
+    docker run --rm --network auto-trade-repo_default \
+      -e S3_BUCKET_NAME=auto-trade-repo-123456789012-ap-northeast-1-an \
+      -e ENDPOINT_URL=http://minio:9000 \
+      -e ACCESS_KEY=minioadmin \
+      -e SECRET_KEY=minioadmin \
+      -e TARGET_DATE="$d" \
+      inference
+  done
 ```

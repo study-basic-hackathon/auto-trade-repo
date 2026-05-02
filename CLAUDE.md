@@ -139,3 +139,29 @@ CD に必要な GitHub Repository Variables（Settings → Secrets and variables
 |---|---|
 | `AWS_OIDC_ROLE_ARN` | `terraform output github_actions_role_arn` の出力値 |
 | `AWS_REGION` | `ap-northeast-1` |
+| `USE_REAL_INFERENCE` | `false`（サンプル）/ `true`（本番） |
+
+## 推論コンテナ（inference）
+
+`docker compose` には含まれず、`docker run` で単発実行するバッチコンテナ。
+
+### 実行スクリプトの切り替え
+
+ビルド引数 `USE_REAL_INFERENCE` で `entry.py`（コンテナ内で実行されるスクリプト）を切り替える。
+
+| `USE_REAL_INFERENCE` | 使用されるスクリプト |
+|---|---|
+| `false`（デフォルト） | `run.sample.py` |
+| `true` | `run.py` |
+
+ローカルでのビルド:
+
+```bash
+# run.sample.py を使う（デフォルト）
+docker build -f infra/docker/inference/Dockerfile -t inference .
+
+# run.py を使う
+docker build --build-arg USE_REAL_INFERENCE=true -f infra/docker/inference/Dockerfile -t inference .
+```
+
+GitHub Actions では `USE_REAL_INFERENCE` Variable の値が自動的に渡される。
