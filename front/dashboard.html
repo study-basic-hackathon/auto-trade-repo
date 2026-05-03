@@ -532,15 +532,6 @@
             <section id="us-market" aria-labelledby="us-title">
                 <h2 id="us-title">米国マーケット（前日終値）</h2>
 
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="米国マーケットデータを読み込み中"
-                >
-                    読み込み中…
-                </div>
-
                 <!-- エラーメッセージ -->
                 <div
                     class="error-message"
@@ -562,15 +553,6 @@
                     東証終値（前日）と NY 終値（円換算）の差。プラス＝買い優勢。
                 </p>
 
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="ADRデータを読み込み中"
-                >
-                    読み込み中…
-                </div>
-
                 <!-- エラーメッセージ -->
                 <div
                     class="error-message"
@@ -591,15 +573,6 @@
             <section id="features" aria-labelledby="feat-title">
                 <h2 id="feat-title">予想根拠（特徴量の寄与）</h2>
 
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="特徴量データを読み込み中"
-                >
-                    読み込み中…
-                </div>
-
                 <!-- エラーメッセージ -->
                 <div
                     class="error-message"
@@ -617,15 +590,6 @@
             <!-- ⑤ 的中履歴（History_Table） -->
             <section id="history" aria-labelledby="hist-title">
                 <h2 id="hist-title">直近の的中履歴（10営業日）</h2>
-
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="履歴データを読み込み中"
-                >
-                    読み込み中…
-                </div>
 
                 <!-- エラーメッセージ -->
                 <div
@@ -1149,14 +1113,8 @@
                     .toISOString()
                     .slice(0, 10);
 
-                // 全セクションにローディングを表示
-                [
-                    "prediction",
-                    "us-market",
-                    "adr",
-                    "features",
-                    "history",
-                ].forEach(showLoading);
+                // 全セクションにローディングを表示（モックセクションは対象外）
+                ["prediction"].forEach(showLoading);
 
                 // ── バックエンド未実装セクション: モックデータで即時描画 ──
                 updateHeader(
