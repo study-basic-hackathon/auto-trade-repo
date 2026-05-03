@@ -165,3 +165,20 @@ docker build --build-arg USE_REAL_INFERENCE=true -f infra/docker/inference/Docke
 ```
 
 GitHub Actions では `USE_REAL_INFERENCE` Variable の値が自動的に渡される。
+
+### テストスクリプト（test-inference.sh）
+
+`docker run` のラッパー。イメージビルドと Compose ネットワーク取得を自動化する。`docker compose up` で MinIO が起動している状態で使用する。
+
+```bash
+# mmdd / yyyymmdd / 範囲 / 複数指定が可能
+./test-inference.sh 0501
+./test-inference.sh 0501-0510
+./test-inference.sh 0501 0503 0507
+
+# オプション
+./test-inference.sh --build 0501   # イメージを強制再ビルド
+./test-inference.sh --real 0501    # run.py を使用（USE_REAL_INFERENCE=true）
+```
+
+スクリプト実行中に MinIO WebUI からファイルをダウンロードすると "Unexpected response, download incomplete" エラーが発生することがある（MinIO Console 固有の現象）。スクリプト完了後にダウンロードすること。

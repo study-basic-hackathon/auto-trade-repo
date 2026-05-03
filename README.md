@@ -199,3 +199,41 @@ python3 -c "from datetime import date,timedelta; d,e=date(2026,4,1),date(2026,5,
       inference
   done
 ```
+
+### テストスクリプト（test-inference.sh）
+
+上記の `docker run` を簡単に実行できるラッパースクリプト。イメージのビルドや Compose ネットワークの取得を自動で行う。事前に `docker compose up` で MinIO が起動している必要がある。
+
+```bash
+# 1日指定（mmdd形式）
+./test-inference.sh 0501
+
+# 1日指定（yyyymmdd形式）
+./test-inference.sh 20260501
+
+# 複数日指定
+./test-inference.sh 0501 0503 0507
+
+# 日付範囲指定（mmdd-mmdd形式）
+./test-inference.sh 0501-0510
+
+# 日付範囲と個別日付の組み合わせ
+./test-inference.sh 0501-0510 0515 0520-0525
+```
+
+**オプション**
+
+| オプション | 説明 |
+|---|---|
+| `--build` | イメージを強制再ビルドする |
+| `--real` | `USE_REAL_INFERENCE=true` でビルドする（デフォルトは `false`） |
+
+```bash
+# イメージを再ビルドしてから実行
+./test-inference.sh --build 0501
+
+# run.py を使って実行
+./test-inference.sh --real 0501
+```
+
+> **注意**: スクリプト実行中は MinIO WebUI からのファイルダウンロードが失敗することがある。これは書き込み処理中に発生する MinIO Console 固有の現象で、スクリプト完了後にダウンロードすれば問題ない。
