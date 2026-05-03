@@ -14,6 +14,11 @@
                 padding: 0;
             }
 
+            /* hidden 属性が class の display ルールに上書きされないよう修正 */
+            [hidden] {
+                display: none !important;
+            }
+
             :root {
                 --color-up: #e03030; /* 日本式: 上昇=赤 */
                 --color-down: #1a6fc4; /* 日本式: 下落=青 */
@@ -159,69 +164,47 @@
                 font-size: 14px;
             }
 
-            /* ===== Prediction_Card ===== */
-            #prediction {
-                padding: 0;
-                overflow: hidden;
-            }
-
-            .pred-card {
-                padding: 28px 24px;
-                border-radius: var(--radius);
-                color: #fff;
-                display: flex;
-                flex-direction: column;
-                gap: 12px;
-            }
-
-            .pred-direction--up {
-                background: var(--color-up);
-            }
-
-            .pred-direction--down {
-                background: var(--color-down);
-            }
-
-            .pred-symbol {
-                font-size: 48px;
-                line-height: 1;
-            }
-
-            .pred-label {
-                font-size: 32px;
-                font-weight: bold;
-                line-height: 1;
-            }
-
-            .pred-confidence-text {
-                font-size: 18px;
-                font-variant-numeric: tabular-nums;
-                opacity: 0.9;
-            }
-
-            /* 確信度プログレスバー */
-            .confidence-bar {
+            /* ===== DayTrade_Section ===== */
+            .daytrade-table {
                 width: 100%;
-                max-width: 320px;
-                height: 10px;
-                background: rgba(255, 255, 255, 0.35);
-                border-radius: 5px;
-                overflow: hidden;
+                border-collapse: collapse;
+                font-size: 13px;
+                font-variant-numeric: tabular-nums;
+                white-space: nowrap;
             }
 
-            .confidence-fill {
-                height: 100%;
-                background: rgba(255, 255, 255, 0.9);
-                border-radius: 5px;
-                transition: width 0.4s ease;
-                /* width は JS で --w カスタムプロパティまたは style 属性で設定 */
+            .daytrade-table th,
+            .daytrade-table td {
+                padding: 8px 12px;
+                border-bottom: 1px solid var(--color-border);
+                text-align: right;
             }
 
-            /* Prediction_Card 内のローディング・エラー */
-            #prediction .loading,
-            #prediction .error-message {
-                padding: 28px 24px;
-                margin: 0;
+            .daytrade-table th:nth-child(2),
+            .daytrade-table td:nth-child(2),
+            .daytrade-table th:nth-child(3),
+            .daytrade-table td:nth-child(3),
+            .daytrade-table th:nth-child(4),
+            .daytrade-table td:nth-child(4) {
+                text-align: left;
+            }
+
+            .daytrade-table td:nth-child(3) {
+                white-space: normal;
+                min-width: 130px;
+            }
+
+            .daytrade-table th {
+                background: #f9f9f9;
+                font-weight: bold;
+                color: var(--color-text-muted);
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+            }
+
+            .daytrade-table tbody tr:hover {
+                background: #fafafa;
             }
 
             /* ===== US_Market_Section ===== */
@@ -501,13 +484,13 @@
         <main>
             <!-- ① 予想カード（Prediction_Card） -->
             <section id="prediction" aria-labelledby="pred-title">
-                <h2 id="pred-title" class="visually-hidden">本日の予想</h2>
+                <h2 id="pred-title">デイトレード注目銘柄</h2>
 
                 <!-- ローディングインジケータ -->
                 <div
                     class="loading"
                     role="status"
-                    aria-label="予想データを読み込み中"
+                    aria-label="銘柄データを読み込み中"
                 >
                     読み込み中…
                 </div>
@@ -614,15 +597,14 @@
         </footer>
 
         <script type="module">
-            // ===== 5.1: fetchSnapshot =====
+            // ===== 5.1: fetchDayTradeList =====
 
             /**
-             * /api/snapshot?date= を fetch し JSON を返す
-             * @param {string} date - YYYY-MM-DD 形式
-             * @returns {Promise<Object>} SnapshotResponse
+             * /api/getdaytradelist を fetch し JSON を返す
+             * @returns {Promise<Object>} DayTradeListResponse
              */
-            async function fetchSnapshot(date) {
-                const url = `/api/snapshot?date=${encodeURIComponent(date)}`;
+            async function fetchDayTradeList() {
+                const url = "/api/getdaytradelist";
                 const response = await fetch(url);
                 if (!response.ok) {
                     const err = new Error(`HTTP ${response.status}`);
@@ -709,30 +691,65 @@
                 if (asofEl) asofEl.textContent = `最終更新 ${timeStr} JST`;
             }
 
-            // ===== 5.3: renderPredictionCard =====
+            // ===== 5.3: renderDayTradeList =====
 
-            function renderPredictionCard(prediction) {
+            function renderDayTradeList(data) {
                 const content = document.getElementById("prediction-content");
                 if (!content) return;
 
-                const isUp = prediction.direction === "up";
-                const symbol = isUp ? "▲" : "▼";
-                const label = isUp ? "陽線" : "陰線";
-                const dirClass = isUp
-                    ? "pred-direction--up"
-                    : "pred-direction--down";
-                const confidencePct = Math.round(prediction.confidence * 100);
+                const { count, min_trading_value, min_volume_ratio, items } =
+                    data;
+                const minTradeStr = Math.round(
+                    min_trading_value / 1e8,
+                ).toLocaleString("ja-JP");
+
+                const rows = items
+                    .map((item, i) => {
+                        const changePct = item["値上率(%)"];
+                        const isUp = changePct >= 0;
+                        const changeClass = isUp ? "pos" : "neg";
+                        const changeSymbol = isUp ? "▲" : "▼";
+                        const changePctStr = `${changeSymbol}${Math.abs(changePct).toFixed(2)}%`;
+                        const tradeVal = Math.round(
+                            item["売買代金"] / 1e8,
+                        ).toLocaleString("ja-JP");
+                        const price = item["取引値"].toLocaleString("ja-JP", {
+                            maximumFractionDigits: 1,
+                        });
+                        const volRatio = item["出来高増加率"].toFixed(2);
+                        return `
+          <tr>
+            <td class="num">${i + 1}</td>
+            <td>${item["コード"]}</td>
+            <td>${item["名称"]}</td>
+            <td>${item["市場"]}</td>
+            <td class="num">${price}</td>
+            <td class="num ${changeClass}">${changePctStr}</td>
+            <td class="num">${tradeVal}</td>
+            <td class="num">${volRatio}倍</td>
+          </tr>`;
+                    })
+                    .join("");
 
                 content.innerHTML = `
-        <div class="pred-card ${dirClass}" aria-label="本日の予想: ${label} 確信度${confidencePct}%">
-          <p class="pred-symbol" aria-hidden="true">${symbol}</p>
-          <p class="pred-label">${label}</p>
-          <p class="pred-confidence-text">確信度 <strong class="num">${confidencePct}%</strong></p>
-          <div class="confidence-bar" role="meter" aria-valuenow="${confidencePct}" aria-valuemin="0" aria-valuemax="100" aria-label="確信度">
-            <div class="confidence-fill" style="width: ${confidencePct}%"></div>
-          </div>
-        </div>
-      `;
+      <p class="hint">条件：売買代金${minTradeStr}億円以上・出来高増加率${min_volume_ratio}倍以上（${count}銘柄）</p>
+      <div class="table-wrap">
+        <table class="daytrade-table">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">コード</th>
+              <th scope="col">銘柄名</th>
+              <th scope="col">市場</th>
+              <th scope="col">取引値</th>
+              <th scope="col">前日比</th>
+              <th scope="col">売買代金(億)</th>
+              <th scope="col">出来高増加率</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
                 showContent("prediction");
             }
 
@@ -1104,15 +1121,9 @@
             /**
              * ページロード時のエントリポイント
              * - 米国マーケット / ADR乖離 / 特徴量 / 的中履歴 はモックデータで即描画
-             * - 予想カードのみ /api/snapshot から取得（バックエンド実装済み）
-             * - バックエンド実装後は MOCK_* 定数を削除し fetchSnapshot の結果を使う
+             * - デイトレード注目銘柄のみ /api/getdaytradelist から取得
              */
             async function init() {
-                // JST 当日の日付を取得
-                const jstDate = new Date(Date.now() + 9 * 60 * 60 * 1000)
-                    .toISOString()
-                    .slice(0, 10);
-
                 // 全セクションにローディングを表示（モックセクションは対象外）
                 ["prediction"].forEach(showLoading);
 
@@ -1125,18 +1136,15 @@
                 renderFeatureChart(MOCK_FEATURES);
                 renderHistoryTable(MOCK_HISTORY);
 
-                // ── 予想カード: API から取得（バックエンド実装済み） ──
+                // ── デイトレード注目銘柄: API から取得 ──
                 try {
-                    const data = await fetchSnapshot(jstDate);
-                    updateHeader(data.asOf);
-                    renderPredictionCard(data.prediction);
+                    const data = await fetchDayTradeList();
+                    renderDayTradeList(data);
                 } catch (err) {
                     const message =
-                        err.status === 404
-                            ? "本日のデータはまだ準備されていません"
-                            : err.status === 503 || !err.status
-                              ? "データの取得に失敗しました。しばらく後に再読み込みしてください。"
-                              : "予期しないエラーが発生しました。";
+                        err.status === 503 || !err.status
+                            ? "データの取得に失敗しました。しばらく後に再読み込みしてください。"
+                            : "予期しないエラーが発生しました。";
                     showError("prediction", message);
                 }
             }
