@@ -1,0 +1,13 @@
+# Terraformのローカルファイル
+.terraform/
+*.tfstate
+*.tfstate.backup
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# 実際の設定値（コミット不可）
+*.tfvars
+!*.tfvars.example

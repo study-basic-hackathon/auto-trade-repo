@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  lint:
+    # develop への PR（任意ブランチから）、または develop → main の PR のみ実行
+    if: |
+      github.event.pull_request.base.ref == 'develop' ||
+      (github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Dockerfile lint (api)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: infra/docker/python/Dockerfile
+
+      - name: Dockerfile lint (nginx)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: infra/docker/nginx/Dockerfile
+
+      - name: Dockerfile lint (inference)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: infra/docker/inference/Dockerfile
