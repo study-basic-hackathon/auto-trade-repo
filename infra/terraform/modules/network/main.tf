@@ -15,7 +15,17 @@ resource "aws_vpc" "this" {
 }
 
 # ================================================================
-# プライベートサブネット（Internet Gateway・NAT Gateway なし）
+# Internet Gateway（CloudFront VPC Origin の要件。プライベートサブネットへのルートは追加しない）
+# ================================================================
+
+resource "aws_internet_gateway" "this" {
+  vpc_id = aws_vpc.this.id
+
+  tags = { Name = "${var.project}-igw" }
+}
+
+# ================================================================
+# プライベートサブネット（NAT Gateway なし。ECS は VPC Endpoint 経由のみ）
 # ================================================================
 
 resource "aws_subnet" "private_1a" {
@@ -57,7 +67,7 @@ resource "aws_route_table_association" "private_1c" {
 
 resource "aws_security_group" "vpc_endpoint" {
   name        = "${var.project}-vpc-endpoint-sg"
-  description = "Interface VPC Endpoint用"
+  description = "Security group for Interface VPC Endpoints"
   vpc_id      = aws_vpc.this.id
 
   tags = { Name = "${var.project}-vpc-endpoint-sg" }
@@ -65,7 +75,7 @@ resource "aws_security_group" "vpc_endpoint" {
 
 resource "aws_security_group" "ecs" {
   name        = "${var.project}-ecs-sg"
-  description = "ECS Fargate Task用"
+  description = "Security group for ECS Fargate tasks"
   vpc_id      = aws_vpc.this.id
 
   tags = { Name = "${var.project}-ecs-sg" }
@@ -73,7 +83,7 @@ resource "aws_security_group" "ecs" {
 
 resource "aws_security_group" "alb" {
   name        = "${var.project}-alb-sg"
-  description = "Internal ALB用"
+  description = "Security group for Internal ALB"
   vpc_id      = aws_vpc.this.id
 
   tags = { Name = "${var.project}-alb-sg" }
@@ -86,7 +96,7 @@ resource "aws_vpc_security_group_ingress_rule" "vpc_endpoint_from_ecs" {
   ip_protocol                  = "tcp"
   from_port                    = 443
   to_port                      = 443
-  description                  = "ECSタスクからのHTTPS"
+  description                  = "HTTPS from ECS tasks"
 }
 
 # ALB: CloudFront VPC Origin からの HTTP のみ受け付ける
@@ -96,7 +106,7 @@ resource "aws_vpc_security_group_ingress_rule" "alb_from_cloudfront" {
   ip_protocol       = "tcp"
   from_port         = 80
   to_port           = 80
-  description       = "CloudFront VPC OriginからのHTTP"
+  description       = "HTTP from CloudFront VPC Origin"
 }
 
 resource "aws_vpc_security_group_egress_rule" "alb_to_ecs" {
@@ -105,7 +115,7 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_ecs" {
   ip_protocol                  = "tcp"
   from_port                    = 80
   to_port                      = 80
-  description                  = "ECSタスクへのHTTP転送"
+  description                  = "HTTP forwarding to ECS tasks"
 }
 
 # ECS: ALB からの HTTP のみ受け付け、アウトバウンドは全許可（VPC Endpoint 経由）
@@ -115,14 +125,14 @@ resource "aws_vpc_security_group_ingress_rule" "ecs_from_alb" {
   ip_protocol                  = "tcp"
   from_port                    = 80
   to_port                      = 80
-  description                  = "ALBからのHTTP"
+  description                  = "HTTP from ALB"
 }
 
 resource "aws_vpc_security_group_egress_rule" "ecs_to_all" {
   security_group_id = aws_security_group.ecs.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
-  description       = "全アウトバウンド許可（VPC Endpoint・S3 Gateway 経由）"
+  description       = "Allow all outbound traffic via VPC Endpoints and S3 Gateway"
 }
 
 # ================================================================
