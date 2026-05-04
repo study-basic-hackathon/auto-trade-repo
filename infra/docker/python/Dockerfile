@@ -19,5 +19,8 @@ ENV PATH="/app/.venv/bin:$PATH"
 # アプリケーションの作業ディレクトリ
 WORKDIR /api
 
+# アプリケーションコードをコピー（ローカルはボリュームマウントで上書きされる）
+COPY api/ /api/
+
 # コンテナ起動時にサーバーをポート8080で立ち上げる
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
