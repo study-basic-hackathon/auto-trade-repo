@@ -16,16 +16,16 @@ jobs:
       issues: write     # Issue 作成に必要
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: AWS OIDC 認証
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Terraform セットアップ
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
 
       - name: terraform init
         working-directory: infra/terraform/envs/prod
@@ -39,11 +39,20 @@ jobs:
         # -detailed-exitcode: 差分あり=2, 差分なし=0, エラー=1
         # 差分あり(2)の場合もエラー扱いにしないため continue-on-error: true
         continue-on-error: true
+        env:
+          # tfvars の代わりに TF_VAR_* 環境変数で渡す
+          # github.repository_owner はワークフロー実行リポジトリの所有者を自動取得する組み込みコンテキスト
+          TF_VAR_github_org: ${{ github.repository_owner }}
+          TF_VAR_nginx_image_uri: ${{ vars.NGINX_IMAGE_URI }}
+          TF_VAR_api_image_uri: ${{ vars.API_IMAGE_URI }}
+          TF_VAR_inference_image_uri: ${{ vars.INFERENCE_IMAGE_URI }}
+          TF_VAR_tfstate_kms_key_id: ${{ vars.TF_STATE_KMS_KEY_ID }}
+          TF_VAR_basic_auth_username: ${{ secrets.BASIC_AUTH_USERNAME }}
+          TF_VAR_basic_auth_password: ${{ secrets.BASIC_AUTH_PASSWORD }}
         run: |
           terraform plan \
             -detailed-exitcode \
             -no-color \
-            -var-file=terraform.tfvars \
             2>&1 | tee plan_output.txt
           echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
