@@ -15,6 +15,9 @@ nginx_image_uri     = "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-tr
 api_image_uri       = "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/api:latest"
 inference_image_uri = "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/inference:latest"
 
+# tfstate バケットの KMS キー ID（暗号化されている場合のみ設定。不要な場合は空文字のまま）
+tfstate_kms_key_id = ""
+
 # Basic認証（CloudFront Functions）
 # 記号（' " \ など）は使用不可（JavaScriptリテラルに埋め込まれるため）
 basic_auth_username = "your-username"

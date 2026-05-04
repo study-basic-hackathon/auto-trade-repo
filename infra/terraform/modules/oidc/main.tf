@@ -46,6 +46,53 @@ resource "aws_iam_role" "github_actions" {
   tags = { Name = "${var.project}-github-actions-ecr" }
 }
 
+# Terraform plan 用: tfstate バケットへのアクセス権限
+# use_lockfile = true のためロックファイルの Put/Delete も必要
+resource "aws_iam_role_policy" "tfstate_access" {
+  name = "tfstate-access"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    # KMS キーが指定された場合のみ KMS ステートメントを concat で追加
+    Statement = concat(
+      [
+        {
+          Effect = "Allow"
+          Action = [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject",
+          ]
+          Resource = "arn:aws:s3:::tfstate-${local.account_id}-ap-northeast-1-an/${var.project}/*"
+        },
+        {
+          Effect   = "Allow"
+          Action   = "s3:ListBucket"
+          Resource = "arn:aws:s3:::tfstate-${local.account_id}-ap-northeast-1-an"
+        },
+      ],
+      var.tfstate_kms_key_id != "" ? [
+        {
+          Effect = "Allow"
+          Action = [
+            "kms:Decrypt",
+            "kms:GenerateDataKey",
+            "kms:DescribeKey",
+          ]
+          Resource = "arn:aws:kms:${local.region}:${local.account_id}:key/${var.tfstate_kms_key_id}"
+        }
+      ] : []
+    )
+  })
+}
+
+# Terraform plan 用: AWSリソースの読み取り権限（ドリフト検知時に実際の状態と比較するため）
+resource "aws_iam_role_policy_attachment" "readonly" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
 # ECS サービス更新権限ポリシー（force-new-deployment + wait services-stable に必要）
 resource "aws_iam_role_policy" "ecs_deploy" {
   name = "ecs-deploy"

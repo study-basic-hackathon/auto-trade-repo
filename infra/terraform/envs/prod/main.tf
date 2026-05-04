@@ -67,9 +67,10 @@ module "ecr" {
 module "oidc" {
   source = "../../modules/oidc"
 
-  project     = var.project
-  github_org  = var.github_org
-  github_repo = var.github_repo
+  project            = var.project
+  github_org         = var.github_org
+  github_repo        = var.github_repo
+  tfstate_kms_key_id = var.tfstate_kms_key_id
 }
 
 # ================================================================

@@ -47,6 +47,12 @@ variable "inference_image_uri" {
   type        = string
 }
 
+variable "tfstate_kms_key_id" {
+  description = "tfstate バケットの KMS キー ID（暗号化されている場合のみ設定）"
+  type        = string
+  default     = ""
+}
+
 variable "basic_auth_username" {
   description = "CloudFront Basic認証のユーザー名"
   type        = string

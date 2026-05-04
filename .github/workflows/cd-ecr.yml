@@ -6,6 +6,11 @@ on:
       - closed
     branches:
       - main
+    paths:
+      - 'api/**'
+      - 'front/**'
+      - 'inference/**'
+      - 'infra/docker/**'
 
 jobs:
   push:
