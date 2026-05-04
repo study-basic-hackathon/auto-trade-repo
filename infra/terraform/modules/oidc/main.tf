@@ -54,22 +54,36 @@ resource "aws_iam_role_policy" "tfstate_access" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject",
-        ]
-        Resource = "arn:aws:s3:::tfstate-${local.account_id}-ap-northeast-1-an/${var.project}/*"
-      },
-      {
-        Effect   = "Allow"
-        Action   = "s3:ListBucket"
-        Resource = "arn:aws:s3:::tfstate-${local.account_id}-ap-northeast-1-an"
-      },
-    ]
+    # KMS キーが指定された場合のみ KMS ステートメントを concat で追加
+    Statement = concat(
+      [
+        {
+          Effect = "Allow"
+          Action = [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject",
+          ]
+          Resource = "arn:aws:s3:::tfstate-${local.account_id}-ap-northeast-1-an/${var.project}/*"
+        },
+        {
+          Effect   = "Allow"
+          Action   = "s3:ListBucket"
+          Resource = "arn:aws:s3:::tfstate-${local.account_id}-ap-northeast-1-an"
+        },
+      ],
+      var.tfstate_kms_key_id != "" ? [
+        {
+          Effect = "Allow"
+          Action = [
+            "kms:Decrypt",
+            "kms:GenerateDataKey",
+            "kms:DescribeKey",
+          ]
+          Resource = "arn:aws:kms:${local.region}:${local.account_id}:key/${var.tfstate_kms_key_id}"
+        }
+      ] : []
+    )
   })
 }
 
