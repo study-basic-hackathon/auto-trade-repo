@@ -47,3 +47,15 @@ variable "api_image_uri" {
   description = "api ECRイメージURI（タグ付き）"
   type        = string
 }
+
+variable "basic_auth_username" {
+  description = "CloudFront Basic認証のユーザー名"
+  type        = string
+  sensitive   = true
+}
+
+variable "basic_auth_password" {
+  description = "CloudFront Basic認証のパスワード"
+  type        = string
+  sensitive   = true
+}

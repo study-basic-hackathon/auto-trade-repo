@@ -208,6 +208,47 @@ resource "aws_ecs_service" "this" {
 }
 
 # ================================================================
+# CloudFront Functions（Basic認証）
+# ================================================================
+
+resource "aws_cloudfront_function" "basic_auth" {
+  name    = "${var.project}-basic-auth"
+  runtime = "cloudfront-js-2.0"
+  publish = true
+
+  code = <<-JS
+    function handler(event) {
+      var request = event.request;
+      var headers = request.headers;
+      var expectedUser = '${var.basic_auth_username}';
+      var expectedPass = '${var.basic_auth_password}';
+      var authHeader = headers.authorization;
+      if (authHeader) {
+        var encoded = authHeader.value.split(' ')[1];
+        if (encoded) {
+          var decoded = atob(encoded);
+          var sep = decoded.indexOf(':');
+          if (sep !== -1) {
+            var user = decoded.slice(0, sep);
+            var pass = decoded.slice(sep + 1);
+            if (user === expectedUser && pass === expectedPass) {
+              return request;
+            }
+          }
+        }
+      }
+      return {
+        statusCode: 401,
+        statusDescription: 'Unauthorized',
+        headers: {
+          'www-authenticate': { value: 'Basic realm="Restricted"' }
+        }
+      };
+    }
+  JS
+}
+
+# ================================================================
 # CloudFront（VPC Origin → Internal ALB）
 # ================================================================
 
@@ -251,6 +292,11 @@ resource "aws_cloudfront_distribution" "this" {
     viewer_protocol_policy = "redirect-to-https"
     cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6" # Managed-CachingOptimized
     compress               = true
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.basic_auth.arn
+    }
   }
 
   # /api/*: APIレスポンス（キャッシュなし）
@@ -263,6 +309,11 @@ resource "aws_cloudfront_distribution" "this" {
     cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # Managed-CachingDisabled
     origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # Managed-AllViewer
     compress                 = false
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.basic_auth.arn
+    }
   }
 
   restrictions {
