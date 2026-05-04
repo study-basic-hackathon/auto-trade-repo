@@ -110,6 +110,8 @@ GitHub リポジトリの Settings → Secrets and variables → Actions → Var
 |---|---|
 | `AWS_OIDC_ROLE_ARN` | `terraform output github_actions_role_arn` の出力値 |
 | `AWS_REGION` | `ap-northeast-1` |
+| `ECS_CLUSTER_NAME` | `auto-trade-repo-cluster` |
+| `ECS_SERVICE_NAME` | `auto-trade-repo-service` |
 
 **Step 3: main ブランチに push → GitHub Actions が ECR にイメージを自動登録**
 
@@ -129,7 +131,12 @@ terraform apply
 
 ### 2回目以降
 
-コードを変更して main に push すると GitHub Actions が自動で ECR にイメージを push する。ECS タスク定義の更新は別途 `terraform apply` が必要。
+`develop → main` の PR をマージすると GitHub Actions が自動で以下を実行する。
+
+1. nginx・api・inference イメージをビルドして ECR に push
+2. ECS サービスを `--force-new-deployment` で更新し、新タスクが安定するまで待機
+
+インフラ構成（Terraform）を変更した場合は別途 `terraform apply` が必要。
 
 ---
 
