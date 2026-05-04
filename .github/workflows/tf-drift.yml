@@ -16,16 +16,16 @@ jobs:
       issues: write     # Issue 作成に必要
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: AWS OIDC 認証
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Terraform セットアップ
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
 
       - name: terraform init
         working-directory: infra/terraform/envs/prod
