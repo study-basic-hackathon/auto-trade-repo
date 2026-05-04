@@ -41,7 +41,7 @@ jobs:
         continue-on-error: true
         env:
           # tfvars の代わりに TF_VAR_* 環境変数で渡す
-          TF_VAR_github_org: ${{ vars.GITHUB_ORG }}
+          TF_VAR_github_org: ${{ vars.GH_ORG }}
           TF_VAR_nginx_image_uri: ${{ vars.NGINX_IMAGE_URI }}
           TF_VAR_api_image_uri: ${{ vars.API_IMAGE_URI }}
           TF_VAR_inference_image_uri: ${{ vars.INFERENCE_IMAGE_URI }}
