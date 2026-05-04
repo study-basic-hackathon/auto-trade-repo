@@ -10,6 +10,10 @@ RUN uv sync --no-install-project
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-COPY inference/run.py ./
+COPY inference/run.py inference/run.sample.py ./
 
-CMD ["python", "run.py"]
+# USE_REAL_INFERENCE=true のとき run.py を、false のとき run.sample.py を entry.py として配置
+ARG USE_REAL_INFERENCE=false
+RUN if [ "$USE_REAL_INFERENCE" = "true" ]; then cp run.py entry.py; else cp run.sample.py entry.py; fi
+
+CMD ["python", "entry.py"]

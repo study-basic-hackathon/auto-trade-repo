@@ -1,0 +1,67 @@
+name: CD - Push to ECR
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+
+jobs:
+  push:
+    # develop → main の PR がマージされた時のみ実行
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'develop'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC トークン取得に必要
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: AWS OIDC 認証
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: ECR ログイン
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: nginx イメージをビルド・プッシュ
+        env:
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/auto-trade-repo/nginx
+        run: |
+          docker build \
+            -t "$IMAGE_URI:latest" \
+            -t "$IMAGE_URI:${{ github.sha }}" \
+            -f infra/docker/nginx/Dockerfile \
+            .
+          docker push "$IMAGE_URI:latest"
+          docker push "$IMAGE_URI:${{ github.sha }}"
+
+      - name: api イメージをビルド・プッシュ
+        env:
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/auto-trade-repo/api
+        run: |
+          docker build \
+            -t "$IMAGE_URI:latest" \
+            -t "$IMAGE_URI:${{ github.sha }}" \
+            -f infra/docker/python/Dockerfile \
+            .
+          docker push "$IMAGE_URI:latest"
+          docker push "$IMAGE_URI:${{ github.sha }}"
+
+      - name: inference イメージをビルド・プッシュ
+        env:
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/auto-trade-repo/inference
+        run: |
+          docker build \
+            -t "$IMAGE_URI:latest" \
+            -t "$IMAGE_URI:${{ github.sha }}" \
+            --build-arg USE_REAL_INFERENCE=${{ vars.USE_REAL_INFERENCE }} \
+            -f infra/docker/inference/Dockerfile \
+            .
+          docker push "$IMAGE_URI:latest"
+          docker push "$IMAGE_URI:${{ github.sha }}"
