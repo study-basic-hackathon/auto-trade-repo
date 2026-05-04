@@ -14,3 +14,8 @@ github_repo = "auto-trade-repo"
 nginx_image_uri     = "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/nginx:latest"
 api_image_uri       = "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/api:latest"
 inference_image_uri = "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/inference:latest"
+
+# Basic認証（CloudFront Functions）
+# 記号（' " \ など）は使用不可（JavaScriptリテラルに埋め込まれるため）
+basic_auth_username = "your-username"
+basic_auth_password = "your-long-secure-password"

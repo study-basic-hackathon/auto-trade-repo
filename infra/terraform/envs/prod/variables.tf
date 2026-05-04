@@ -46,3 +46,15 @@ variable "inference_image_uri" {
   description = "inference ECRイメージURI（例: xxxx.dkr.ecr.ap-northeast-1.amazonaws.com/auto-trade-repo/inference:latest）"
   type        = string
 }
+
+variable "basic_auth_username" {
+  description = "CloudFront Basic認証のユーザー名"
+  type        = string
+  sensitive   = true
+}
+
+variable "basic_auth_password" {
+  description = "CloudFront Basic認証のパスワード"
+  type        = string
+  sensitive   = true
+}

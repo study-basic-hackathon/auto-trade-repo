@@ -44,14 +44,14 @@ nginx が `/api/*` を `http://api:8080` に転送し、それ以外は `front/`
 ### 本番構成（AWS）
 
 ```
-ブラウザ → CloudFront → Internal ALB → ECS Fargate タスク
-                                           ├── nginx コンテナ (port 80)
+ブラウザ → CloudFront → Internal ALB → ECS Fargate タスク（プライベートサブネット）
+                                           ├── nginx コンテナ (port 80)   ← API_HOST=localhost
                                            └── fastapi コンテナ (port 8080)
-                                                    ↓ Gateway VPC Endpoint
-                                                   S3
+                                                    ├── Gateway VPC Endpoint → S3
+                                                    └── NAT Gateway → インターネット（Yahoo Finance 等）
 ```
 
-ECS タスクはプライベートサブネットのみ。インターネットへの直接経路なし（NAT Gateway なし）。
+ECS タスクはプライベートサブネットに配置。外向き通信は NAT Gateway 経由。nginx と fastapi は同一タスク内で `localhost` 通信する。
 
 ### S3 バケット構成
 
@@ -103,7 +103,7 @@ JSONL の 1 行スキーマ:
 
 | モジュール | 役割 |
 |---|---|
-| `modules/network` | VPC・サブネット・SG・VPC Endpoint |
+| `modules/network` | VPC・パブリック/プライベートサブネット・NAT Gateway・SG・VPC Endpoint |
 | `modules/s3` | 予測結果・モデル用 S3 バケット |
 | `modules/ecr` | nginx・api・inference の ECR リポジトリ |
 | `modules/oidc` | GitHub Actions OIDC 認証用 IAM ロール |
@@ -131,7 +131,7 @@ terraform apply
 | ワークフロー | トリガー | 内容 |
 |---|---|---|
 | `.github/workflows/ci.yml` | PR → develop または develop → main PR | Dockerfile を Hadolint で lint |
-| `.github/workflows/cd-ecr.yml` | develop → main PR のマージ | nginx・api・inference イメージをビルドして ECR に push |
+| `.github/workflows/cd-ecr.yml` | develop → main PR のマージ | nginx・api・inference イメージをビルドして ECR に push → ECS サービスを自動更新 |
 
 CD に必要な GitHub Repository Variables（Settings → Secrets and variables → Actions → Variables）:
 
@@ -140,6 +140,8 @@ CD に必要な GitHub Repository Variables（Settings → Secrets and variables
 | `AWS_OIDC_ROLE_ARN` | `terraform output github_actions_role_arn` の出力値 |
 | `AWS_REGION` | `ap-northeast-1` |
 | `USE_REAL_INFERENCE` | `false`（サンプル）/ `true`（本番） |
+| `ECS_CLUSTER_NAME` | `auto-trade-repo-cluster` |
+| `ECS_SERVICE_NAME` | `auto-trade-repo-service` |
 
 ## 推論コンテナ（inference）
 
