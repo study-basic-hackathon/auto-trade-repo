@@ -1,0 +1,88 @@
+name: Terraform ドリフト検知
+
+on:
+  # 毎日 9:00 JST（= 00:00 UTC）に定期実行
+  schedule:
+    - cron: "0 0 * * *"
+  # GitHub Actions UI から手動実行可能
+  workflow_dispatch:
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC トークン取得に必要
+      contents: read
+      issues: write     # Issue 作成に必要
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS OIDC 認証
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Terraform セットアップ
+        uses: hashicorp/setup-terraform@v3
+
+      - name: terraform init
+        working-directory: infra/terraform/envs/prod
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: terraform plan（ドリフト検知）
+        id: plan
+        working-directory: infra/terraform/envs/prod
+        # -detailed-exitcode: 差分あり=2, 差分なし=0, エラー=1
+        # 差分あり(2)の場合もエラー扱いにしないため continue-on-error: true
+        continue-on-error: true
+        run: |
+          terraform plan \
+            -detailed-exitcode \
+            -no-color \
+            -var-file=terraform.tfvars \
+            2>&1 | tee plan_output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: ドリフト検知時に Issue を作成
+        if: steps.plan.outputs.exitcode == '2'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PLAN_OUTPUT=$(cat infra/terraform/envs/prod/plan_output.txt)
+          # 出力が長すぎる場合に備えて末尾から 10000 文字に制限
+          PLAN_TRIMMED=$(echo "$PLAN_OUTPUT" | tail -c 10000)
+
+          gh issue create \
+            --title "⚠️ Terraform ドリフト検知: $(date '+%Y-%m-%d')" \
+            --label "terraform,drift" \
+            --body "$(cat <<EOF
+          ## Terraform ドリフトが検知されました
+
+          実行日時: $(date '+%Y-%m-%d %H:%M:%S UTC')
+          環境: prod
+          トリガー: ${{ github.event_name }}
+
+          ## terraform plan 出力
+
+          \`\`\`
+          ${PLAN_TRIMMED}
+          \`\`\`
+
+          ## 対応方法
+
+          1. 上記の差分を確認する
+          2. 意図しない変更であれば \`terraform apply\` で Terraform の状態に戻す
+          3. 意図した変更であれば \`terraform import\` または tfstate を手動修正する
+          EOF
+          )"
+
+      - name: plan エラー時に失敗させる
+        if: steps.plan.outputs.exitcode == '1'
+        run: |
+          echo "terraform plan がエラーで失敗しました"
+          cat infra/terraform/envs/prod/plan_output.txt
+          exit 1
