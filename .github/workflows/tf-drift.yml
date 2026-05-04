@@ -110,10 +110,18 @@ jobs:
           3. 意図した変更であれば \`terraform import\` または tfstate を手動修正する
           EOF
 
-          gh issue create \
-            --title "⚠️ Terraform ドリフト検知: $(date '+%Y-%m-%d')" \
-            --label "terraform,drift" \
-            --body-file issue_body.md
+          # 既存の open な drift Issue があればコメント追記、なければ新規作成
+          EXISTING_ISSUE=$(gh issue list --label drift --state open --json number --jq '.[0].number')
+          if [ -n "$EXISTING_ISSUE" ]; then
+            echo "既存の Issue #${EXISTING_ISSUE} にコメント追記します"
+            gh issue comment "$EXISTING_ISSUE" --body-file issue_body.md
+          else
+            echo "新規 Issue を作成します"
+            gh issue create \
+              --title "⚠️ Terraform ドリフト検知: $(date '+%Y-%m-%d')" \
+              --label "terraform,drift" \
+              --body-file issue_body.md
+          fi
 
       - name: plan エラー時に失敗させる
         if: steps.plan.outputs.exitcode == '1'
