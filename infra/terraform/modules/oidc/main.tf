@@ -46,6 +46,26 @@ resource "aws_iam_role" "github_actions" {
   tags = { Name = "${var.project}-github-actions-ecr" }
 }
 
+# ECS サービス更新権限ポリシー（force-new-deployment + wait services-stable に必要）
+resource "aws_iam_role_policy" "ecs_deploy" {
+  name = "ecs-deploy"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecs:UpdateService",
+          "ecs:DescribeServices",
+        ]
+        Resource = "arn:aws:ecs:${local.region}:${local.account_id}:service/${var.project}-cluster/${var.project}-service"
+      },
+    ]
+  })
+}
+
 # ECR push 権限ポリシー
 resource "aws_iam_role_policy" "ecr_push" {
   name = "ecr-push"
