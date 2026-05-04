@@ -1,7 +1,8 @@
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "this" {
-  bucket = "${var.project}-${data.aws_caller_identity.current.account_id}-${var.aws_region}-an"
+  bucket           = "${var.project}-${data.aws_caller_identity.current.account_id}-${var.aws_region}-an"
+  bucket_namespace = "account-regional"
 
   tags = { Name = "${var.project}-${data.aws_caller_identity.current.account_id}-${var.aws_region}-an" }
 }
