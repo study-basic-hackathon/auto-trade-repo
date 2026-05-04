@@ -98,7 +98,7 @@ resource "aws_lb_target_group" "this" {
     path                = "/api/health"
     healthy_threshold   = 2
     unhealthy_threshold = 3
-    interval            = 30
+    interval            = 60
     timeout             = 5
     matcher             = "200"
   }
