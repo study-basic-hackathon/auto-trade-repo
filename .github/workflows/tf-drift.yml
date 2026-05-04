@@ -29,6 +29,8 @@ jobs:
 
       - name: Terraform セットアップ
         uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
 
       - name: terraform init
         working-directory: infra/terraform/envs/prod
