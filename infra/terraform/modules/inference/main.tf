@@ -34,12 +34,16 @@ resource "aws_iam_role_policy" "task_s3" {
           var.s3_bucket_arn,
           "${var.s3_bucket_arn}/predictions/*",
           "${var.s3_bucket_arn}/models/*",
+          "${var.s3_bucket_arn}/metrics/*",
         ]
       },
       {
-        Effect   = "Allow"
-        Action   = ["s3:PutObject"]
-        Resource = ["${var.s3_bucket_arn}/predictions/*"]
+        Effect = "Allow"
+        Action = ["s3:PutObject"]
+        Resource = [
+          "${var.s3_bucket_arn}/predictions/*",
+          "${var.s3_bucket_arn}/metrics/*",
+        ]
       }
     ]
   })

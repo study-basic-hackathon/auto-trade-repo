@@ -8,6 +8,7 @@
 3. ノートブック Cell 9 `predict_next_close` と同じ前処理 (log return + StandardScaler)
 4. ONNXRuntime で翌営業日の対数リターンを推論し、終値に変換
 5. 結果を月次 JSONL (predictions/n225.YYYY-MM.jsonl) に追記
+6. 過去の予測のうち実績が出たものを評価し、月次 JSONL (metrics/n225.YYYY-MM.jsonl) に追記
 
 実行スケジュール: 平日 08:00 JST (EventBridge Scheduler)
 """
@@ -57,11 +58,17 @@ def download_yfinance_dataset(target_date: date) -> pd.DataFrame:
     返却列の順序:
       n225_open, n225_high, n225_low, n225_close, n225_volume,
       sp500_close, nasdaq_close, vix_close, usdjpy_close
+
+    日付インデックスは N225 の取引日のみを採用する (日本の祝日や週末で N225 が
+    取引されない日は除外)。他銘柄 (米国指数・為替) は N225 取引日に合わせて
+    forward-fill で揃える。
     """
     end = target_date + timedelta(days=1)  # yfinance の end は exclusive
     start = target_date - timedelta(days=DOWNLOAD_DAYS)
 
-    frames: list[pd.DataFrame] = []
+    n225_df: pd.DataFrame | None = None
+    other_frames: list[pd.DataFrame] = []
+
     for symbol, prefix in YF_TICKERS.items():
         df = yf.download(
             symbol,
@@ -87,14 +94,24 @@ def download_yfinance_dataset(target_date: date) -> pd.DataFrame:
                 f"{prefix}_close",
                 f"{prefix}_volume",
             ]
+            # N225 が実際に取引された日 = Close が NaN でない行
+            n225_df = sub.dropna(subset=[f"{prefix}_close"])
         else:
             sub = df[["Close"]].copy()
             sub.columns = [f"{prefix}_close"]
-        frames.append(sub)
+            other_frames.append(sub)
 
-    # 各銘柄を日付で outer-join し、市場休日差を forward-fill で吸収
-    merged = pd.concat(frames, axis=1).sort_index()
-    merged = merged.ffill().dropna()
+    if n225_df is None or n225_df.empty:
+        raise RuntimeError("N225 のデータが取得できませんでした")
+
+    # 他銘柄を N225 取引日に合わせて forward-fill (それ以前のデータも含めて ffill するため
+    # 一度フル系列で ffill してから N225 の index に reindex する)
+    aligned_others = [
+        f.sort_index().ffill().reindex(n225_df.index, method="ffill")
+        for f in other_frames
+    ]
+
+    merged = pd.concat([n225_df] + aligned_others, axis=1, sort=False).dropna()
 
     # target_date 以前 (= 推論時点で参照可能) のデータに限定
     merged = merged[merged.index.date <= target_date]
@@ -188,7 +205,30 @@ def append_monthly_jsonl(s3, bucket: str, target_date: date, record: dict) -> st
     キー命名規約: predictions/{TICKER}.YYYY-MM.jsonl
     """
     key = f"predictions/{TICKER}.{target_date.strftime('%Y-%m')}.jsonl"
+    _append_jsonl_records(s3, bucket, key, [record])
+    return key
 
+
+# ============================================================
+# 精度モニタリング (predictions/* と yfinance 実績を突合)
+# ============================================================
+
+def _read_jsonl_or_empty(s3, bucket: str, key: str) -> list[dict]:
+    """S3 から JSONL を読んで dict のリストを返す。存在しなければ空リスト。"""
+    try:
+        resp = s3.get_object(Bucket=bucket, Key=key)
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
+            return []
+        raise
+    body = resp["Body"].read().decode("utf-8")
+    return [json.loads(line) for line in body.splitlines() if line.strip()]
+
+
+def _append_jsonl_records(s3, bucket: str, key: str, records: list[dict]) -> None:
+    """S3 の JSONL に複数行追記する (既存内容は保持)。"""
+    if not records:
+        return
     try:
         resp = s3.get_object(Bucket=bucket, Key=key)
         existing = resp["Body"].read().decode("utf-8").rstrip("\n")
@@ -197,17 +237,110 @@ def append_monthly_jsonl(s3, bucket: str, target_date: date, record: dict) -> st
             existing = ""
         else:
             raise
-
-    new_line = json.dumps(record, ensure_ascii=False)
-    content = (existing + "\n" + new_line).lstrip("\n") + "\n"
-
+    new_lines = "\n".join(json.dumps(r, ensure_ascii=False) for r in records)
+    content = ((existing + "\n" + new_lines) if existing else new_lines) + "\n"
     s3.put_object(
         Bucket=bucket,
         Key=key,
         Body=content.encode("utf-8"),
         ContentType="application/jsonlines",
     )
-    return key
+
+
+def _recent_year_months(today: date, n: int = 2) -> list[str]:
+    """today を含めて直近 n ヶ月分の YYYY-MM 文字列を古い順で返す。"""
+    out: list[str] = []
+    cur = today.replace(day=1)
+    for _ in range(n):
+        out.append(cur.strftime("%Y-%m"))
+        # 前月の 1 日へ
+        cur = (cur - timedelta(days=1)).replace(day=1)
+    return list(reversed(out))
+
+
+def _evaluate_one(pred: dict, df: pd.DataFrame, target_col: str) -> dict | None:
+    """1 つの予測レコードを評価する。実績未確定なら None を返す。"""
+    # 旧スキーマ (run.sample.py 由来) など必須フィールド欠落のものは評価不可
+    if not {"as_of_date", "current_close", "predicted_close", "prediction_sign"} <= pred.keys():
+        return None
+
+    as_of = datetime.strptime(pred["as_of_date"], "%Y-%m-%d").date()
+    # df.index 内で as_of より大きい最初の日付 = 予測対象日
+    future_mask = df.index.date > as_of
+    if not future_mask.any():
+        return None  # まだ実績データが届いていない
+    actual_target = df.index[future_mask][0]
+    actual_close = float(df.loc[actual_target, target_col])
+    current_close = float(pred["current_close"])
+    if current_close <= 0 or actual_close <= 0:
+        return None
+    actual_log_return = float(np.log(actual_close / current_close))
+    actual_sign = 1 if actual_log_return > 0 else -1
+    abs_error = abs(actual_close - float(pred["predicted_close"]))
+    abs_pct_error = abs_error / actual_close
+
+    return {
+        "evaluated_at": datetime.now(JST).strftime("%Y-%m-%dT%H:%M:%S+09:00"),
+        "as_of_date": pred["as_of_date"],
+        "actual_target_date": actual_target.date().isoformat(),
+        "model_version": pred.get("model_version", ""),
+        "ticker": pred.get("ticker", TICKER),
+        "current_close": round(current_close, 2),
+        "predicted_close": round(float(pred["predicted_close"]), 2),
+        "actual_close": round(actual_close, 2),
+        "predicted_log_return": pred.get("predicted_log_return"),
+        "actual_log_return": round(actual_log_return, 6),
+        "prediction_sign": int(pred["prediction_sign"]),
+        "actual_sign": actual_sign,
+        "hit": actual_sign == int(pred["prediction_sign"]),
+        "abs_error": round(abs_error, 2),
+        "abs_pct_error": round(abs_pct_error, 6),
+        "predicted_at": pred.get("predicted_at"),
+    }
+
+
+def evaluate_pending_predictions(
+    s3, bucket: str, df: pd.DataFrame, today: date, target_col: str
+) -> int:
+    """過去の予測のうち実績が確定した未評価のものを評価し、metrics/ に追記する。
+
+    Returns:
+        新規に評価できた件数。
+    """
+    months = _recent_year_months(today, n=2)
+    total_new = 0
+
+    for ym in months:
+        pred_key = f"predictions/{TICKER}.{ym}.jsonl"
+        metric_key = f"metrics/{TICKER}.{ym}.jsonl"
+
+        predictions = _read_jsonl_or_empty(s3, bucket, pred_key)
+        if not predictions:
+            continue
+
+        existing_metrics = _read_jsonl_or_empty(s3, bucket, metric_key)
+        # 評価済みキー (as_of_date + model_version) を集める
+        evaluated_keys = {
+            (m.get("as_of_date"), m.get("model_version"))
+            for m in existing_metrics
+        }
+
+        new_records: list[dict] = []
+        for pred in predictions:
+            key = (pred.get("as_of_date"), pred.get("model_version"))
+            if key in evaluated_keys:
+                continue
+            metric = _evaluate_one(pred, df, target_col)
+            if metric is None:
+                continue
+            new_records.append(metric)
+
+        if new_records:
+            _append_jsonl_records(s3, bucket, metric_key, new_records)
+            total_new += len(new_records)
+            print(f"精度評価 {ym}: 新規 {len(new_records)} 件 → s3://{bucket}/{metric_key}")
+
+    return total_new
 
 
 def main() -> None:
@@ -267,6 +400,14 @@ def main() -> None:
     # 6) 月次 JSONL に追記
     key = append_monthly_jsonl(s3, bucket, target_date, record)
     print(f"S3 への書き込み完了: s3://{bucket}/{key}")
+
+    # 7) 過去予測の精度評価 (実績が確定した未評価レコードを metrics/ に追記)
+    target_col = params["target_col"]
+    n_evaluated = evaluate_pending_predictions(s3, bucket, df, target_date, target_col)
+    if n_evaluated == 0:
+        print("精度評価: 新規評価対象なし")
+    else:
+        print(f"精度評価: 合計 {n_evaluated} 件を metrics/ に追記")
 
 
 if __name__ == "__main__":

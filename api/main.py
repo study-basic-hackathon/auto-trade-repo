@@ -1,10 +1,15 @@
 from fastapi import FastAPI, HTTPException, Query
+from datetime import date, datetime, timedelta, timezone
 import json
+import math
 import os
 from typing import Any
 import boto3
+from botocore.exceptions import ClientError
 import requests
 import uvicorn
+
+JST = timezone(timedelta(hours=9))
 
 # Yahoo!ファイナンスのページ内に埋め込まれている JSON データの開始位置です。
 PRELOADED_STATE_MARKER = "window.__PRELOADED_STATE__ = "
@@ -185,6 +190,158 @@ def collect_day_trade_list(
 
     return merged_rows
 
+
+
+def _recent_year_months(today: date, n: int = 12) -> list[str]:
+    """today を含めて直近 n ヶ月分の YYYY-MM 文字列を新しい順で返す。"""
+    out: list[str] = []
+    cur = today.replace(day=1)
+    for _ in range(n):
+        out.append(cur.strftime("%Y-%m"))
+        cur = (cur - timedelta(days=1)).replace(day=1)
+    return out
+
+
+def _read_metrics_from_s3(
+    s3, bucket: str, ticker: str, months: list[str]
+) -> list[dict[str, Any]]:
+    """指定された月リストの metrics JSONL を読み込んで全件をリストで返す。"""
+    records: list[dict[str, Any]] = []
+    for ym in months:
+        key = f"metrics/{ticker}.{ym}.jsonl"
+        try:
+            obj = s3.get_object(Bucket=bucket, Key=key)
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
+                continue
+            raise
+        for line in obj["Body"].read().decode("utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            records.append(json.loads(line))
+    return records
+
+
+def _aggregate_accuracy(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """精度指標 (direction_accuracy, MAE, MAPE, RMSE, returns_R²) を集計する。"""
+    n = len(records)
+    if n == 0:
+        return {
+            "samples": 0,
+            "direction_accuracy": None,
+            "mae": None,
+            "mape": None,
+            "rmse": None,
+            "returns_r2": None,
+        }
+
+    hits = sum(1 for r in records if r.get("hit"))
+    abs_errors = [float(r["abs_error"]) for r in records]
+    abs_pct_errors = [float(r["abs_pct_error"]) for r in records]
+    mae = sum(abs_errors) / n
+    mape = sum(abs_pct_errors) / n
+    rmse = math.sqrt(sum(e * e for e in abs_errors) / n)
+
+    # 対数リターンベースの R² (両フィールドが揃っている件のみ)
+    pairs = [
+        (float(r["actual_log_return"]), float(r["predicted_log_return"]))
+        for r in records
+        if r.get("actual_log_return") is not None
+        and r.get("predicted_log_return") is not None
+    ]
+    if len(pairs) >= 2:
+        actual = [a for a, _ in pairs]
+        mean_a = sum(actual) / len(actual)
+        ss_tot = sum((a - mean_a) ** 2 for a in actual)
+        ss_res = sum((a - p) ** 2 for a, p in pairs)
+        returns_r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else None
+    else:
+        returns_r2 = None
+
+    return {
+        "samples": n,
+        "direction_accuracy": round(hits / n, 4),
+        "mae": round(mae, 2),
+        "mape": round(mape, 6),
+        "rmse": round(rmse, 2),
+        "returns_r2": round(returns_r2, 4) if returns_r2 is not None else None,
+    }
+
+
+@app.get("/api/metrics/accuracy")
+def metrics_accuracy(
+    days: int = Query(default=30, ge=1, le=730),
+    ticker: str = Query(default="n225"),
+) -> dict[str, Any]:
+    """過去 days 日間の予測精度を集計して返す。
+
+    metrics/{ticker}.YYYY-MM.jsonl を読み、actual_target_date が
+    [today - days, today] の範囲内のレコードを集計対象とする。
+    """
+    today = datetime.now(JST).date()
+    cutoff = today - timedelta(days=days)
+
+    # 必要な月をカバー (cutoff 月から today 月まで)
+    span_months: set[str] = set()
+    cur = cutoff.replace(day=1)
+    last = today.replace(day=1)
+    while cur <= last:
+        span_months.add(cur.strftime("%Y-%m"))
+        # 翌月の 1 日へ
+        if cur.month == 12:
+            cur = cur.replace(year=cur.year + 1, month=1)
+        else:
+            cur = cur.replace(month=cur.month + 1)
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("ENDPOINT_URL"),
+        aws_access_key_id=os.environ.get("ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("SECRET_KEY"),
+    )
+    bucket = os.environ["S3_BUCKET_NAME"]
+
+    all_records = _read_metrics_from_s3(s3, bucket, ticker, sorted(span_months))
+
+    # 期間でフィルタ
+    in_window: list[dict[str, Any]] = []
+    for r in all_records:
+        target_str = r.get("actual_target_date")
+        if not target_str:
+            continue
+        try:
+            target = datetime.strptime(target_str, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if cutoff <= target <= today:
+            in_window.append(r)
+
+    in_window.sort(key=lambda r: r["actual_target_date"])
+
+    summary = _aggregate_accuracy(in_window)
+
+    return {
+        "ticker": ticker,
+        "window_days": days,
+        "from": cutoff.isoformat(),
+        "to": today.isoformat(),
+        **summary,
+        "by_date": [
+            {
+                "actual_target_date": r["actual_target_date"],
+                "as_of_date": r.get("as_of_date"),
+                "predicted_close": r.get("predicted_close"),
+                "actual_close": r.get("actual_close"),
+                "prediction_sign": r.get("prediction_sign"),
+                "actual_sign": r.get("actual_sign"),
+                "hit": r.get("hit"),
+                "abs_error": r.get("abs_error"),
+                "abs_pct_error": r.get("abs_pct_error"),
+            }
+            for r in in_window
+        ],
+    }
 
 
 @app.get("/api/sample/predictions")
