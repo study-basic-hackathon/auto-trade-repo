@@ -147,6 +147,9 @@ resource "aws_ecs_task_definition" "this" {
       image     = var.nginx_image_uri
       essential = true
       portMappings = [{ containerPort = 80, protocol = "tcp" }]
+      environment = [
+        { name = "API_HOST", value = "localhost" },
+      ]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
