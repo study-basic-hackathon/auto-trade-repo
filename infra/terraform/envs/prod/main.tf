@@ -80,16 +80,18 @@ module "oidc" {
 module "app" {
   source = "../../modules/app"
 
-  project            = var.project
-  aws_region         = var.aws_region
-  vpc_id             = module.network.vpc_id
-  private_subnet_ids = module.network.private_subnet_ids
-  alb_sg_id          = module.network.alb_sg_id
-  ecs_sg_id          = module.network.ecs_sg_id
-  s3_bucket_name     = module.s3.bucket_name
-  s3_bucket_arn      = module.s3.bucket_arn
-  nginx_image_uri    = var.nginx_image_uri
-  api_image_uri      = var.api_image_uri
+  project             = var.project
+  aws_region          = var.aws_region
+  vpc_id              = module.network.vpc_id
+  private_subnet_ids  = module.network.private_subnet_ids
+  alb_sg_id           = module.network.alb_sg_id
+  ecs_sg_id           = module.network.ecs_sg_id
+  s3_bucket_name      = module.s3.bucket_name
+  s3_bucket_arn       = module.s3.bucket_arn
+  nginx_image_uri     = var.nginx_image_uri
+  api_image_uri       = var.api_image_uri
+  basic_auth_username = var.basic_auth_username
+  basic_auth_password = var.basic_auth_password
 }
 
 # ================================================================
