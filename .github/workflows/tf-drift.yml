@@ -64,13 +64,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          # シェルへの直接展開は特殊文字で壊れる可能性があるため env 経由で渡す
+          PLAN_OUTPUT: ${{ steps.drift-check.outputs.stdout }}
         run: |
           # ラベルが存在しない場合は作成（既に存在する場合は無視）
           gh label create terraform --color "5319E7" --description "Terraform 関連" 2>/dev/null || true
           gh label create drift --color "D93F0B" --description "ドリフト検知" 2>/dev/null || true
 
           # plan 出力を末尾 10000 文字に制限
-          PLAN_TRIMMED=$(tail -c 10000 plan_output.txt)
+          PLAN_TRIMMED=$(printf '%s' "$PLAN_OUTPUT" | tail -c 10000)
 
           # Issue 本文をファイルに書き出す
           cat > issue_body.md <<EOF
