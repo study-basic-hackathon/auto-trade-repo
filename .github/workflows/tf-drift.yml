@@ -51,13 +51,6 @@ jobs:
           TF_VAR_basic_auth_password: ${{ secrets.BASIC_AUTH_PASSWORD }}
         run: terraform plan -no-color -detailed-exitcode
 
-      - name: デバッグ
-        if: always()
-        run: |
-          echo "stdout: '${{ steps.drift-check.outputs.stdout }}'"
-          echo "stderr: '${{ steps.drift-check.outputs.stderr }}'"
-          echo "exitcode: '${{ steps.drift-check.outputs.exitcode }}'"
-
       - name: ドリフト検知時に Issue を作成
         if: steps.drift-check.outputs.exitcode == '2'
         working-directory: infra/terraform/envs/prod
