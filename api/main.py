@@ -202,13 +202,13 @@ def _recent_year_months(today: date, n: int = 12) -> list[str]:
     return out
 
 
-def _read_metrics_from_s3(
-    s3, bucket: str, ticker: str, months: list[str]
+def _read_jsonl_from_s3(
+    s3, bucket: str, prefix: str, ticker: str, months: list[str]
 ) -> list[dict[str, Any]]:
-    """指定された月リストの metrics JSONL を読み込んで全件をリストで返す。"""
+    """{prefix}/{ticker}.YYYY-MM.jsonl 形式のファイル群を全て読み込んで結合する。"""
     records: list[dict[str, Any]] = []
     for ym in months:
-        key = f"metrics/{ticker}.{ym}.jsonl"
+        key = f"{prefix}/{ticker}.{ym}.jsonl"
         try:
             obj = s3.get_object(Bucket=bucket, Key=key)
         except ClientError as e:
@@ -221,6 +221,20 @@ def _read_metrics_from_s3(
                 continue
             records.append(json.loads(line))
     return records
+
+
+def _span_months(cutoff: date, today: date) -> list[str]:
+    """[cutoff, today] 期間に該当する YYYY-MM のリストを古い順で返す。"""
+    months: set[str] = set()
+    cur = cutoff.replace(day=1)
+    last = today.replace(day=1)
+    while cur <= last:
+        months.add(cur.strftime("%Y-%m"))
+        if cur.month == 12:
+            cur = cur.replace(year=cur.year + 1, month=1)
+        else:
+            cur = cur.replace(month=cur.month + 1)
+    return sorted(months)
 
 
 def _aggregate_accuracy(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -282,18 +296,6 @@ def metrics_accuracy(
     today = datetime.now(JST).date()
     cutoff = today - timedelta(days=days)
 
-    # 必要な月をカバー (cutoff 月から today 月まで)
-    span_months: set[str] = set()
-    cur = cutoff.replace(day=1)
-    last = today.replace(day=1)
-    while cur <= last:
-        span_months.add(cur.strftime("%Y-%m"))
-        # 翌月の 1 日へ
-        if cur.month == 12:
-            cur = cur.replace(year=cur.year + 1, month=1)
-        else:
-            cur = cur.replace(month=cur.month + 1)
-
     s3 = boto3.client(
         "s3",
         endpoint_url=os.environ.get("ENDPOINT_URL"),
@@ -302,7 +304,7 @@ def metrics_accuracy(
     )
     bucket = os.environ["S3_BUCKET_NAME"]
 
-    all_records = _read_metrics_from_s3(s3, bucket, ticker, sorted(span_months))
+    all_records = _read_jsonl_from_s3(s3, bucket, "metrics", ticker, _span_months(cutoff, today))
 
     # 期間でフィルタ
     in_window: list[dict[str, Any]] = []
@@ -341,6 +343,92 @@ def metrics_accuracy(
             }
             for r in in_window
         ],
+    }
+
+
+@app.get("/api/predictions/latest")
+def predictions_latest(
+    ticker: str = Query(default="n225"),
+) -> dict[str, Any]:
+    """最新の予測レコードを 1 件返す。
+
+    現在月から前月までを走査し、predicted_at が最も新しいレコードを返す。
+    レコードが 1 件もなければ 404。
+    """
+    today = datetime.now(JST).date()
+    # 現在月 + 前月をカバー (月初に当月ファイルが空のケースに備える)
+    months = [
+        (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m"),
+        today.strftime("%Y-%m"),
+    ]
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("ENDPOINT_URL"),
+        aws_access_key_id=os.environ.get("ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("SECRET_KEY"),
+    )
+    bucket = os.environ["S3_BUCKET_NAME"]
+
+    records = _read_jsonl_from_s3(s3, bucket, "predictions", ticker, months)
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No predictions found for ticker={ticker}",
+        )
+
+    # predicted_at で降順ソートし、最新を選択
+    records.sort(key=lambda r: r.get("predicted_at", ""), reverse=True)
+    return {
+        "ticker": ticker,
+        "prediction": records[0],
+    }
+
+
+@app.get("/api/predictions")
+def predictions_list(
+    days: int = Query(default=30, ge=1, le=730),
+    ticker: str = Query(default="n225"),
+) -> dict[str, Any]:
+    """直近 days 日間の予測レコードを古い順で返す。
+
+    target_date が [today - days, today] の範囲のレコードを対象。
+    """
+    today = datetime.now(JST).date()
+    cutoff = today - timedelta(days=days)
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("ENDPOINT_URL"),
+        aws_access_key_id=os.environ.get("ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("SECRET_KEY"),
+    )
+    bucket = os.environ["S3_BUCKET_NAME"]
+
+    all_records = _read_jsonl_from_s3(s3, bucket, "predictions", ticker, _span_months(cutoff, today))
+
+    # target_date でフィルタ
+    in_window: list[dict[str, Any]] = []
+    for r in all_records:
+        target_str = r.get("target_date")
+        if not target_str:
+            continue
+        try:
+            target = datetime.strptime(target_str, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if cutoff <= target <= today:
+            in_window.append(r)
+
+    in_window.sort(key=lambda r: (r.get("target_date", ""), r.get("predicted_at", "")))
+
+    return {
+        "ticker": ticker,
+        "window_days": days,
+        "from": cutoff.isoformat(),
+        "to": today.isoformat(),
+        "count": len(in_window),
+        "items": in_window,
     }
 
 
