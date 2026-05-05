@@ -42,6 +42,7 @@
 | `GET /api/metrics/accuracy?days=N` | **過去 N 日間の的中率・誤差** | 「直近の的中履歴」「精度サマリー」表示 |
 | `GET /api/adr/deviation` | **東証銘柄と ADR (米国上場) の乖離率** | 「主要企業 ADR 乖離」テーブル |
 | `GET /api/markets/us` | **NYダウ / NASDAQ / S&P500 / USD/JPY の前日終値** | 「米国マーケット (前日終値)」カード |
+| `GET /api/markets/polymarket` | **Polymarket 予想市場のセンチメント11件** | 「マーケット予想・センチメントカード」 |
 | `GET /api/getdaytradelist` | デイトレード注目銘柄 | 既存。注目銘柄テーブル |
 | `GET /api/health` | 死活確認 | 通常は使わない (運用監視用) |
 | `GET /api/sample/predictions` | サンプルデータ (旧形式) | 動作確認用。本番表示には使わないでください |
@@ -583,7 +584,139 @@ Object.entries(data.items).forEach(([key, m]) => {
 
 ---
 
-### 3.7 `GET /api/getdaytradelist` — デイトレード注目銘柄 (既存)
+### 3.7 `GET /api/markets/polymarket` — Polymarket 予想市場 (センチメント)
+
+予想市場プラットフォーム [Polymarket](https://polymarket.com/) から、日本株デイトレに有用な11マーケットの**現在の確率**をまとめて返します。Fed・日銀の次回金利決定や地政学リスクなど、価格データには現れない**フォワードルッキングなセンチメント指標**として使えます。
+
+> 💡 **自動ローリング設計**: マスタ (`api/data/polymarket_master.json`) の各マーケットはキーワード検索で動的に Polymarket 上の event を見つけます。「FOMC 6月」のような月固定ではなく **「次回 FOMC」** として常に最新会合に追従するので、月をまたいでもマスタの書き換えは原則不要です。
+
+#### クエリパラメータ
+| パラメータ | 型 | 必須 | デフォルト | 説明 |
+|---|---|---|---|---|
+| `no_cache` | 真偽 | 任意 | `false` | `true` で強制再取得 |
+
+#### キャッシュ仕様
+Polymarket Gamma API を 8 ページ分 (約 4,000 events) 走査するため初回は **約 7〜15 秒** かかります。レスポンスは **30 分間メモリにキャッシュ**されます。
+
+#### レスポンス例 (一部抜粋)
+
+```json
+{
+  "fetched_at": "2026-05-05T22:00:00+09:00",
+  "cached": false,
+  "cache_age_seconds": 0,
+  "source": "polymarket-gamma-api",
+  "count": 10,
+  "items": [
+    {
+      "rank": 1,
+      "slug": "fed-decision-in-june-825",
+      "label": "次回 FOMC 据え置き確率",
+      "category": "金融政策",
+      "category_key": "monetary",
+      "main_outcome": {
+        "name": "No change",
+        "name_jp": "据え置き",
+        "probability": 0.955
+      },
+      "all_outcomes": [
+        { "name": "No change",        "probability": 0.955 },
+        { "name": "25 bps decrease",  "probability": 0.025 },
+        { "name": "25 bps increase",  "probability": 0.009 },
+        { "name": "50+ bps decrease", "probability": 0.004 },
+        { "name": "50+ bps increase", "probability": 0.004 }
+      ],
+      "volume_usd": 18077785.0,
+      "liquidity_usd": 250000.0,
+      "resolution_date": "2026-06-17",
+      "polymarket_url": "https://polymarket.com/event/fed-decision-in-june-825",
+      "description_jp": "次回 FOMC 会合の政策金利決定。No change = 据え置き確率。月またぎで自動的に次の会合に追従する。",
+      "impact_on_n225": "据え置き確率上昇 → ハト派観測弱まる → USD/JPY 上昇 → N225 上昇要因",
+      "available": true
+    }
+    /* ... 残り 9 件 ... */
+  ]
+}
+```
+
+#### フィールド意味
+
+**トップレベル**
+
+| フィールド | 説明 |
+|---|---|
+| `fetched_at` | 取得日時 (JST) |
+| `cached` / `cache_age_seconds` | キャッシュ状態 |
+| `source` | 常に `polymarket-gamma-api` |
+| `count` | 返却件数 (常に 10 想定) |
+
+**`items[]` 各マーケット**
+
+| フィールド | 説明 |
+|---|---|
+| `rank` | 重要度ランク (1〜10、フロントの並び順保持に使う) |
+| `slug` | Polymarket 上の一意 ID |
+| `label` | **日本語表示名** (カードのタイトル) |
+| `category` / `category_key` | カテゴリ表示名と英字キー (UI のフィルタ・色分け用) |
+| `main_outcome` | **画面に大きく出す確率値** |
+| `main_outcome.name` | Polymarket 上の outcome 名 (英語) |
+| `main_outcome.name_jp` | 日本語表示名 |
+| `main_outcome.probability` | **現在の確率 (0〜1)** — UI では `× 100` で % 表示 |
+| `all_outcomes` | 全 outcome の確率 (詳細パネル用) |
+| `volume_usd` | 累計取引高 USD (信頼性の目安) |
+| `liquidity_usd` | 板の厚み |
+| `resolution_date` | 決着日 (YYYY-MM-DD) |
+| `polymarket_url` | 「詳細を見る」リンク用 |
+| `description_jp` | ツールチップ用 日本語解説 |
+| `impact_on_n225` | **「これが動いたら日本株にどう効くか」のヒント** |
+| `available` | データ取得成功か |
+
+**カテゴリ一覧**
+
+| `category_key` | `category` (表示名) | 該当マーケット |
+|---|---|---|
+| `monetary` | 金融政策 | FOMC, Fed利下げ回数, BOJ, RBA |
+| `fx` | 為替 | USD/JPY |
+| `equity_proxy` | 米株プロキシ | NVIDIA時価総額1位 |
+| `geopolitics` | 地政学 | 中台 |
+| `us_macro` | 米国経済 | 米国リセッション |
+| `japan_macro` | 日本経済 | 日本リセッション |
+| `risk_appetite` | リスク選好 | Bitcoin |
+
+#### JavaScript 使用例
+
+```javascript
+const res = await fetch("/api/markets/polymarket");
+const data = await res.json();
+
+// シンプルカード一覧 (rank 順、絶対値の大きい確率を強調)
+data.items.forEach(m => {
+  if (!m.available) return;
+  const card = document.createElement("div");
+  card.className = `polymarket-card category-${m.category_key}`;
+  const prob = m.main_outcome.probability;
+  const probPct = (prob * 100).toFixed(1);
+  card.innerHTML = `
+    <div class="cat">${m.category}</div>
+    <h3>${m.label}</h3>
+    <div class="prob">${probPct}%</div>
+    <div class="outcome">${m.main_outcome.name_jp}</div>
+    <a href="${m.polymarket_url}" target="_blank" rel="noopener">詳細 →</a>
+  `;
+  card.title = m.description_jp + "\n\n[N225への影響]\n" + m.impact_on_n225;
+  document.getElementById("polymarket-section").appendChild(card);
+});
+```
+
+#### 注意点
+
+- **初回呼び出しは約 7〜15 秒**かかります (Polymarket Gamma API を 4000 events 走査するため)。フロント側でローディング表示を出してください。同セッション 30 分以内の 2 回目以降は瞬時。
+- 一時的に Polymarket から該当 event が見つからない場合 `available: false` で他フィールドが `null` になります。フロント側でケアしてください。
+- マスタ (`api/data/polymarket_master.json`) のキーワード検索方式により、月またぎでも次回会合等を自動追従します。**手動更新が必要なのは年単位のマーケット (年内リセッション等) のみ**。
+
+---
+
+### 3.8 `GET /api/getdaytradelist` — デイトレード注目銘柄 (既存)
 
 Yahoo!ファイナンスのランキングを集計して、売買代金 × 出来高増加率の両条件を満たす銘柄を返します。
 
