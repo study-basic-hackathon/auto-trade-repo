@@ -38,8 +38,10 @@
 |---|---|---|
 | `GET /api/predictions/latest` | **最新の予測 1 件** | ダッシュボード上部の「今日の予想」表示 |
 | `GET /api/predictions?days=N` | **直近 N 日分の予測一覧** | 予測の推移チャート / 履歴テーブル |
+| `GET /api/predictions/explanation/latest` | **特徴量の寄与 (相関係数)** | 「予想根拠」棒グラフ |
 | `GET /api/metrics/accuracy?days=N` | **過去 N 日間の的中率・誤差** | 「直近の的中履歴」「精度サマリー」表示 |
 | `GET /api/adr/deviation` | **東証銘柄と ADR (米国上場) の乖離率** | 「主要企業 ADR 乖離」テーブル |
+| `GET /api/markets/us` | **NYダウ / NASDAQ / S&P500 / USD/JPY の前日終値** | 「米国マーケット (前日終値)」カード |
 | `GET /api/getdaytradelist` | デイトレード注目銘柄 | 既存。注目銘柄テーブル |
 | `GET /api/health` | 死活確認 | 通常は使わない (運用監視用) |
 | `GET /api/sample/predictions` | サンプルデータ (旧形式) | 動作確認用。本番表示には使わないでください |
@@ -182,7 +184,96 @@ const chartData = data.items.map(p => ({
 
 ---
 
-### 3.3 `GET /api/metrics/accuracy?days=N` — 予測精度サマリー
+### 3.3 `GET /api/predictions/explanation/latest` — 予想根拠 (特徴量の寄与)
+
+最新の予測について、各特徴量と「N225 翌日リターン」の **過去60営業日のピアソン相関係数** を返します。ダッシュボードの「予想根拠 (特徴量の寄与)」棒グラフにそのまま使えます。
+
+> ⚠️ **注意**: これは「相関係数による参考指標」であって、機械学習モデル (LSTM) の本物の SHAP 値ではありません。教育・参考目的でお使いください。
+
+#### クエリパラメータ
+| パラメータ | 型 | 必須 | デフォルト | 説明 |
+|---|---|---|---|---|
+| `ticker` | 文字列 | 任意 | `n225` | 銘柄コード |
+
+#### レスポンス例
+
+```json
+{
+  "ticker": "n225",
+  "explanation": {
+    "computed_at": "2026-05-05T15:32:44+09:00",
+    "as_of_date": "2026-05-01",
+    "ticker": "n225",
+    "method": "pearson_correlation",
+    "lookback_days": 60,
+    "samples": 60,
+    "features": [
+      { "name": "S&P500 前日変化率",       "symbol": "^GSPC", "contribution":  0.5039, "samples": 60 },
+      { "name": "NASDAQ 前日変化率",        "symbol": "^IXIC", "contribution":  0.4830, "samples": 60 },
+      { "name": "VIX 前日変化率",           "symbol": "^VIX",  "contribution": -0.4545, "samples": 60 },
+      { "name": "NYダウ 前日変化率",        "symbol": "^DJI",  "contribution":  0.4424, "samples": 60 },
+      { "name": "原油(WTI) 前日変化率",     "symbol": "CL=F",  "contribution": -0.2142, "samples": 60 },
+      ...
+    ]
+  }
+}
+```
+
+`features` 配列は **寄与の絶対値が大きい順** で並びます (上位ほど影響が大きい)。
+
+#### フィールドの意味
+
+| フィールド | 説明 |
+|---|---|
+| `computed_at` | 計算日時 (JST) |
+| `as_of_date` | 計算時点での「直近営業日」 |
+| `method` | 計算手法 (常に `pearson_correlation`) |
+| `lookback_days` | 相関計算に使った過去営業日数 |
+| `samples` | 全特徴量で利用できた最大サンプル数 |
+| `features[].name` | 特徴量名 (日本語) |
+| `features[].symbol` | yfinance シンボル |
+| `features[].contribution` | **相関係数 (-1 〜 +1)**。正なら順相関 (上がると N225 上昇)、負なら逆相関 |
+| `features[].samples` | この特徴量で実際に使えたサンプル数 (yfinance 取得失敗で減ることあり) |
+
+`contribution` が `null` の場合は、データ不足や全期間 NaN で計算不能。
+
+#### JavaScript 使用例
+
+```javascript
+const res = await fetch("/api/predictions/explanation/latest");
+if (!res.ok) {
+  showMessage("予想根拠データがまだありません");
+  return;
+}
+const data = await res.json();
+const features = data.explanation.features;
+
+// 棒グラフを描画 (絶対値が大きい順、正=赤、負=青)
+const max = Math.max(...features.map(f => Math.abs(f.contribution || 0)));
+features.forEach(f => {
+  const c = f.contribution;
+  if (c === null) return;
+  const bar = document.createElement("div");
+  bar.className = "feature-bar " + (c >= 0 ? "positive" : "negative");
+  bar.style.width = (Math.abs(c) / max * 100) + "%";
+  bar.textContent = `${f.name}: ${c >= 0 ? "+" : ""}${c.toFixed(2)}`;
+  chartContainer.appendChild(bar);
+});
+```
+
+#### 注意点
+
+- 相関係数なので **値の絶対値は大きくても 0.5〜0.7 程度** に収まることが多いです。
+- LSTM モデルの「本物の予測根拠」ではありません。あくまで「相関の高い特徴量を可視化する参考指標」です。
+- 推論バッチが走るたびに最新の数字が更新されます (平日 08:00 JST)。
+- 一部の銘柄が yfinance で取得できなかった場合、その特徴量だけ `contribution: null` になります (他の特徴量は影響なし)。
+
+#### エラー
+- 推論がまだ1度も走っていない (= explanations データなし) → **HTTP 404**
+
+---
+
+### 3.4 `GET /api/metrics/accuracy?days=N` — 予測精度サマリー
 
 過去 N 日間に出した予測のうち、**実績がすでに出ているもの** を集計して的中率や誤差を返します。「直近の的中履歴」「全体の精度カード」に使えます。
 
@@ -286,7 +377,7 @@ data.by_date.forEach(row => {
 
 ---
 
-### 3.4 `GET /api/adr/deviation` — 東証銘柄と ADR の乖離率
+### 3.5 `GET /api/adr/deviation` — 東証銘柄と ADR の乖離率
 
 東証に上場する日本企業について、対応する ADR (米国預託証券) との価格乖離率を返します。ダッシュボードの「主要企業 ADR 乖離」テーブルにそのまま使えます。
 
@@ -386,7 +477,113 @@ sorted.forEach(it => {
 
 ---
 
-### 3.5 `GET /api/getdaytradelist` — デイトレード注目銘柄 (既存)
+### 3.6 `GET /api/markets/us` — 米国マーケット (前日終値)
+
+NYダウ / NASDAQ / S&P 500 / USD/JPY の **直近終値・前日比・変化率** を返します。ダッシュボードの「米国マーケット (前日終値)」カードにそのまま使えます。
+
+#### クエリパラメータ
+| パラメータ | 型 | 必須 | デフォルト | 説明 |
+|---|---|---|---|---|
+| `no_cache` | 真偽 | 任意 | `false` | `true` で強制再取得 (通常は不要) |
+
+#### キャッシュ仕様
+yfinance を内部で 4 回叩くため、初回は **約 2〜5 秒** かかります。レスポンスは **10 分間メモリにキャッシュ**され、2 回目以降は瞬時に返ります。
+
+#### レスポンス例
+
+```json
+{
+  "fetched_at": "2026-05-05T11:40:52+09:00",
+  "cached": false,
+  "cache_age_seconds": 0,
+  "items": {
+    "dow": {
+      "name": "NYダウ",
+      "symbol": "^DJI",
+      "close": 48941.90,
+      "change": -557.37,
+      "change_pct": -0.0113
+    },
+    "nasdaq": {
+      "name": "NASDAQ",
+      "symbol": "^IXIC",
+      "close": 25067.80,
+      "change": -46.64,
+      "change_pct": -0.0019
+    },
+    "sp500": {
+      "name": "S&P 500",
+      "symbol": "^GSPC",
+      "close": 7200.75,
+      "change": -29.37,
+      "change_pct": -0.0041
+    },
+    "usd_jpy": {
+      "name": "USD/JPY",
+      "symbol": "JPY=X",
+      "close": 157.21,
+      "change": 0.36,
+      "change_pct": 0.0023
+    }
+  }
+}
+```
+
+#### フィールドの意味
+
+| フィールド | 説明 |
+|---|---|
+| `fetched_at` | 取得日時 (JST) |
+| `cached` | キャッシュからの応答か (true/false) |
+| `cache_age_seconds` | キャッシュ生成からの経過秒数 |
+| `items.<キー>.name` | 表示用日本語名 |
+| `items.<キー>.symbol` | yfinance のシンボル |
+| `items.<キー>.close` | 直近終値 |
+| `items.<キー>.change` | 前日比 (絶対値) |
+| `items.<キー>.change_pct` | 前日比 (小数。0.01 = 1%) |
+
+`items` のキーは固定 4 種:
+- `dow` (NYダウ)
+- `nasdaq` (NASDAQ総合)
+- `sp500` (S&P 500)
+- `usd_jpy` (米ドル/円レート)
+
+取得失敗した銘柄は `close` / `change` / `change_pct` が `null` になります (例: yfinance 一時障害)。
+
+#### JavaScript 使用例
+
+```javascript
+const res = await fetch("/api/markets/us");
+const data = await res.json();
+
+// 4 枚のカードを描画
+Object.entries(data.items).forEach(([key, m]) => {
+  const card = document.getElementById(`market-card-${key}`);
+  if (m.close === null) {
+    card.querySelector(".value").textContent = "—";
+    return;
+  }
+  const isUp = m.change >= 0;
+  card.querySelector(".name").textContent  = m.name;
+  card.querySelector(".value").textContent = m.close.toLocaleString();
+  card.querySelector(".change").innerHTML  = `
+    <span class="${isUp ? 'up' : 'down'}">
+      ${isUp ? '▲' : '▼'} ${Math.abs(m.change).toFixed(2)}
+      (${(m.change_pct * 100).toFixed(2)}%)
+    </span>
+  `;
+});
+```
+
+#### 注意点
+
+- **初回呼び出しは約2〜5秒**かかります。フロント側でローディング表示を出してください。同じセッションで2回目以降は瞬時に返ります。
+- 表示する数字は **直近の取引日終値**。米国市場が閉まれば翌朝まで値は変わりません。
+- 一時的に yfinance が落ちている場合、該当銘柄だけ `null` を返します (502にはしません)。フロント側で `null` チェックしてください。
+
+---
+
+### 3.7 `GET /api/getdaytradelist` — デイトレード注目銘柄 (既存)
 
 Yahoo!ファイナンスのランキングを集計して、売買代金 × 出来高増加率の両条件を満たす銘柄を返します。
 

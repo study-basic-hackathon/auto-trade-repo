@@ -388,6 +388,43 @@ def predictions_latest(
     }
 
 
+@app.get("/api/predictions/explanation/latest")
+def predictions_explanation_latest(
+    ticker: str = Query(default="n225"),
+) -> dict[str, Any]:
+    """最新の特徴量寄与 (相関係数による予想根拠) を 1 件返す。
+
+    現在月から前月までを走査し、computed_at が最も新しいレコードを返す。
+    レコードが 1 件もなければ 404。
+    """
+    today = datetime.now(JST).date()
+    months = [
+        (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m"),
+        today.strftime("%Y-%m"),
+    ]
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("ENDPOINT_URL"),
+        aws_access_key_id=os.environ.get("ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("SECRET_KEY"),
+    )
+    bucket = os.environ["S3_BUCKET_NAME"]
+
+    records = _read_jsonl_from_s3(s3, bucket, "explanations", ticker, months)
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No explanations found for ticker={ticker}",
+        )
+
+    records.sort(key=lambda r: r.get("computed_at", ""), reverse=True)
+    return {
+        "ticker": ticker,
+        "explanation": records[0],
+    }
+
+
 @app.get("/api/predictions")
 def predictions_list(
     days: int = Query(default=30, ge=1, le=730),
@@ -433,6 +470,107 @@ def predictions_list(
         "count": len(in_window),
         "items": in_window,
     }
+
+
+# ============================================================
+# 米国マーケット (前日終値)
+# ------------------------------------------------------------
+# NYダウ / NASDAQ / S&P500 / USD/JPY の直近終値と前日比を返す。
+# yfinance を 4 回叩くため 10 分間 TTL キャッシュ。
+# ============================================================
+
+_US_MARKETS_CACHE_TTL_SECONDS = 600  # 10 分
+_us_markets_cache: tuple[float, dict[str, Any]] | None = None
+
+# 表示順を保つため tuple のリストで定義 (キー, 表示名, yfinance シンボル)
+US_MARKET_TICKERS: list[tuple[str, str, str]] = [
+    ("dow",     "NYダウ",  "^DJI"),
+    ("nasdaq",  "NASDAQ",  "^IXIC"),
+    ("sp500",   "S&P 500", "^GSPC"),
+    ("usd_jpy", "USD/JPY", "JPY=X"),
+]
+
+
+def _yf_latest_close_with_change(
+    symbol: str, period: str = "10d"
+) -> dict[str, float] | None:
+    """yfinance で直近 2 営業日の終値を取得し close / change / change_pct を返す。
+
+    取得失敗・データ不足時は None。
+    """
+    try:
+        hist = yf.Ticker(symbol).history(
+            period=period, interval="1d", auto_adjust=False
+        )
+    except Exception:
+        return None
+    if hist is None or hist.empty or "Close" not in hist.columns:
+        return None
+    closes = hist["Close"].dropna()
+    if len(closes) < 2:
+        return None
+    latest = float(closes.iloc[-1])
+    prev = float(closes.iloc[-2])
+    change = latest - prev
+    change_pct = change / prev if prev != 0 else 0.0
+    return {"close": latest, "change": change, "change_pct": change_pct}
+
+
+def _compute_us_markets() -> dict[str, Any]:
+    """米国主要指数 + USD/JPY の直近終値と前日比を取得する。"""
+    items: dict[str, Any] = {}
+    for key, display_name, symbol in US_MARKET_TICKERS:
+        # yfinance のレート制限回避用に少し sleep
+        time.sleep(0.2)
+        data = _yf_latest_close_with_change(symbol)
+        if data is None:
+            items[key] = {
+                "name": display_name,
+                "symbol": symbol,
+                "close": None,
+                "change": None,
+                "change_pct": None,
+            }
+        else:
+            items[key] = {
+                "name": display_name,
+                "symbol": symbol,
+                "close": round(data["close"], 2),
+                "change": round(data["change"], 2),
+                "change_pct": round(data["change_pct"], 4),
+            }
+
+    return {
+        "fetched_at": datetime.now(JST).strftime("%Y-%m-%dT%H:%M:%S+09:00"),
+        "items": items,
+    }
+
+
+@app.get("/api/markets/us")
+def markets_us(
+    no_cache: bool = Query(default=False),
+) -> dict[str, Any]:
+    """米国主要指数 (NYダウ / NASDAQ / S&P500) と USD/JPY の直近終値を返す。
+
+    - データソース: yfinance
+    - キャッシュ: 10 分間メモリ保持。`?no_cache=true` で強制再取得
+    - 取得失敗した銘柄は close/change/change_pct が null になる
+    """
+    global _us_markets_cache
+
+    now = time.time()
+    if not no_cache and _us_markets_cache is not None:
+        cached_at, cached_value = _us_markets_cache
+        if now - cached_at < _US_MARKETS_CACHE_TTL_SECONDS:
+            return {
+                **cached_value,
+                "cached": True,
+                "cache_age_seconds": int(now - cached_at),
+            }
+
+    result = _compute_us_markets()
+    _us_markets_cache = (time.time(), result)
+    return {**result, "cached": False, "cache_age_seconds": 0}
 
 
 # ============================================================

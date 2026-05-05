@@ -9,6 +9,8 @@
 4. ONNXRuntime で翌営業日の対数リターンを推論し、終値に変換
 5. 結果を月次 JSONL (predictions/n225.YYYY-MM.jsonl) に追記
 6. 過去の予測のうち実績が出たものを評価し、月次 JSONL (metrics/n225.YYYY-MM.jsonl) に追記
+7. 各特徴量と N225 翌日リターンのピアソン相関係数を計算し、月次 JSONL
+   (explanations/n225.YYYY-MM.jsonl) に追記 (教育目的の「予想根拠」表示用)
 
 実行スケジュール: 平日 08:00 JST (EventBridge Scheduler)
 """
@@ -299,6 +301,163 @@ def _evaluate_one(pred: dict, df: pd.DataFrame, target_col: str) -> dict | None:
     }
 
 
+# ============================================================
+# 特徴量寄与 (推論根拠の参考指標 — 教育目的)
+# ------------------------------------------------------------
+# 10 銘柄の前日対数リターンと N225 翌日リターンとの過去 60 日
+# のピアソン相関係数を計算する。SHAP 等の本格的な説明手法では
+# なく、相関関係を可視化する目安。
+# ============================================================
+
+# LSTM データセットに既に含まれている銘柄 (列名 → 表示名 → yfinance シンボル)
+_EXPLANATION_FROM_LSTM: list[tuple[str, str, str]] = [
+    ("usdjpy_close", "USD/JPY 前日変化率", "JPY=X"),
+    ("sp500_close",  "S&P500 前日変化率",  "^GSPC"),
+    ("nasdaq_close", "NASDAQ 前日変化率",  "^IXIC"),
+    ("vix_close",    "VIX 前日変化率",     "^VIX"),
+    ("n225_close",   "前日日経 変化率",    "^N225"),
+]
+
+# 追加でダウンロードする銘柄 (yfinance シンボル → 表示名)
+# 注: NK=F (SGX旧/CME Nikkei先物) は yfinance で取得不可になることが多いため
+#      NEXT FUNDS Nikkei 225 ETF (1321.T) で代用 (実質的に Nikkei 先物相当)
+_EXPLANATION_EXTRA_TICKERS: list[tuple[str, str]] = [
+    ("^DJI",   "NYダウ 前日変化率"),
+    ("1321.T", "日経連動ETF(1321) 前日変化率"),
+    ("GC=F",   "金(Gold) 前日変化率"),
+    ("^TNX",   "米10年債利回り 前日変化率"),
+    ("CL=F",   "原油(WTI) 前日変化率"),
+]
+
+EXPLANATION_LOOKBACK_DAYS = 60  # 相関計算のサンプル数
+
+
+def compute_feature_contributions(
+    df: pd.DataFrame, target_date: date, lookback: int = EXPLANATION_LOOKBACK_DAYS
+) -> dict:
+    """各特徴量と N225 翌日対数リターンとのピアソン相関係数を計算する。
+
+    Args:
+        df: download_yfinance_dataset() で得た 5 銘柄入り DataFrame
+            (index = N225 取引日)
+        target_date: 推論対象日 (出力の as_of_date と紐付け用)
+        lookback: 相関計算に使う直近営業日数 (デフォルト 60)
+
+    Returns:
+        explanations/*.jsonl に追記する dict
+    """
+    end = target_date + timedelta(days=1)
+    start = target_date - timedelta(days=DOWNLOAD_DAYS)
+    n225_idx = df.index
+
+    # 1) 既存 df から 5 銘柄の対数リターンを抽出
+    feature_returns: dict[str, pd.Series] = {}
+    symbol_map: dict[str, str] = {}
+    for col, name, symbol in _EXPLANATION_FROM_LSTM:
+        feature_returns[name] = np.log(df[col] / df[col].shift(1))
+        symbol_map[name] = symbol
+
+    # 2) 追加 5 銘柄を yfinance から取得して N225 取引日にアライン
+    for symbol, name in _EXPLANATION_EXTRA_TICKERS:
+        try:
+            extra = yf.download(
+                symbol,
+                start=start.isoformat(),
+                end=end.isoformat(),
+                interval="1d",
+                progress=False,
+                auto_adjust=False,
+            )
+        except Exception as e:
+            print(f"[警告] 特徴量寄与: {symbol} の取得に失敗 ({e})。NaN として扱います")
+            extra = None
+
+        if extra is None or extra.empty or "Close" not in extra.columns:
+            print(f"[警告] 特徴量寄与: {symbol} のデータが空です")
+            feature_returns[name] = pd.Series(np.nan, index=n225_idx)
+        else:
+            if isinstance(extra.columns, pd.MultiIndex):
+                extra.columns = extra.columns.get_level_values(0)
+            close = extra["Close"].dropna().sort_index()
+            # N225 取引日に reindex (forward-fill で休日差を吸収)
+            aligned = close.reindex(n225_idx, method="ffill")
+            feature_returns[name] = np.log(aligned / aligned.shift(1))
+        symbol_map[name] = symbol
+
+    # 3) 翌日 N225 対数リターン (今日の特徴量 → 翌営業日 N225 リターン と対応)
+    next_n225_return = np.log(df["n225_close"].shift(-1) / df["n225_close"])
+
+    # 4) 表示順 (スクリーンショット準拠) を維持しつつ各特徴量の相関係数を計算
+    #    各特徴量ごとに「その特徴量と target が両方有効なサンプル」だけで計算する
+    #    (1 つの銘柄が全期間 NaN でも他の特徴量の集計は成立させる)
+    display_order = [
+        "NYダウ 前日変化率",
+        "USD/JPY 前日変化率",
+        "日経連動ETF(1321) 前日変化率",
+        "金(Gold) 前日変化率",
+        "S&P500 前日変化率",
+        "NASDAQ 前日変化率",
+        "VIX 前日変化率",
+        "前日日経 変化率",
+        "米10年債利回り 前日変化率",
+        "原油(WTI) 前日変化率",
+    ]
+
+    features: list[dict] = []
+    samples_used: list[int] = []
+    for name in display_order:
+        contribution: float | None = None
+        n_used = 0
+        series = feature_returns.get(name)
+        if series is not None:
+            joined = pd.concat(
+                [series.rename("x"), next_n225_return.rename("y")],
+                axis=1, sort=False,
+            ).dropna().tail(lookback)
+            n_used = len(joined)
+            if n_used >= 10 and joined["x"].std() > 0 and joined["y"].std() > 0:
+                corr_val = float(joined["x"].corr(joined["y"]))
+                if not np.isnan(corr_val):
+                    contribution = round(corr_val, 4)
+        samples_used.append(n_used)
+        features.append(
+            {
+                "name": name,
+                "symbol": symbol_map.get(name, ""),
+                "contribution": contribution,
+                "samples": n_used,
+            }
+        )
+
+    # 全特徴量の中で最小サンプル数 (デバッグ用)
+    samples = max(samples_used) if samples_used else 0
+
+    # 絶対値の大きい順 (UI で上から重要順に並ぶ)
+    features.sort(
+        key=lambda f: abs(f["contribution"]) if f["contribution"] is not None else -1.0,
+        reverse=True,
+    )
+
+    return {
+        "computed_at": datetime.now(JST).strftime("%Y-%m-%dT%H:%M:%S+09:00"),
+        "as_of_date": df.index[-1].date().isoformat(),
+        "ticker": TICKER,
+        "method": "pearson_correlation",
+        "lookback_days": lookback,
+        "samples": samples,
+        "features": features,
+    }
+
+
+def append_monthly_explanation(
+    s3, bucket: str, target_date: date, record: dict
+) -> str:
+    """月次 explanations JSONL に 1 行追記する。"""
+    key = f"explanations/{TICKER}.{target_date.strftime('%Y-%m')}.jsonl"
+    _append_jsonl_records(s3, bucket, key, [record])
+    return key
+
+
 def evaluate_pending_predictions(
     s3, bucket: str, df: pd.DataFrame, today: date, target_col: str
 ) -> int:
@@ -408,6 +567,18 @@ def main() -> None:
         print("精度評価: 新規評価対象なし")
     else:
         print(f"精度評価: 合計 {n_evaluated} 件を metrics/ に追記")
+
+    # 8) 特徴量寄与 (ピアソン相関) を計算して explanations/ に追記
+    try:
+        explanation = compute_feature_contributions(df, target_date)
+        exp_key = append_monthly_explanation(s3, bucket, target_date, explanation)
+        print(
+            f"特徴量寄与の書き込み完了: s3://{bucket}/{exp_key} "
+            f"(samples={explanation['samples']})"
+        )
+    except Exception as e:
+        # 推論本体の成功を妨げないよう、寄与計算の失敗はログだけにとどめる
+        print(f"[警告] 特徴量寄与の計算に失敗: {e}")
 
 
 if __name__ == "__main__":

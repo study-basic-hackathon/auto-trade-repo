@@ -35,6 +35,7 @@ resource "aws_iam_role_policy" "task_s3" {
           "${var.s3_bucket_arn}/predictions/*",
           "${var.s3_bucket_arn}/models/*",
           "${var.s3_bucket_arn}/metrics/*",
+          "${var.s3_bucket_arn}/explanations/*",
         ]
       },
       {
@@ -43,6 +44,7 @@ resource "aws_iam_role_policy" "task_s3" {
         Resource = [
           "${var.s3_bucket_arn}/predictions/*",
           "${var.s3_bucket_arn}/metrics/*",
+          "${var.s3_bucket_arn}/explanations/*",
         ]
       }
     ]
