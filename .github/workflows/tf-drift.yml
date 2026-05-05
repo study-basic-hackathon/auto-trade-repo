@@ -78,7 +78,7 @@ jobs:
           cat > issue_body.md <<EOF
           ## Terraform ドリフトが検知されました
 
-          - 実行日時: $(date '+%Y-%m-%d %H:%M:%S UTC')
+          - 実行日時: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')
           - 環境: prod
           - トリガー: ${{ github.event_name }}
           - ワークフロー実行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
