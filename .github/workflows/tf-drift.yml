@@ -104,9 +104,12 @@ jobs:
 
       - name: plan エラー時に失敗させる
         if: steps.drift-check.outputs.exitcode == '1'
+        env:
+          PLAN_STDOUT: ${{ steps.drift-check.outputs.stdout }}
+          PLAN_STDERR: ${{ steps.drift-check.outputs.stderr }}
         run: |
           echo "terraform plan がエラーで失敗しました"
-          echo "stdout: '${{ steps.drift-check.outputs.stdout }}'"
-          echo "stderr: '${{ steps.drift-check.outputs.stderr }}'"
+          echo "stdout: '$PLAN_STDOUT'"
+          echo "stderr: '$PLAN_STDERR'"
           echo "exitcode: '${{ steps.drift-check.outputs.exitcode }}'"
           exit 1
