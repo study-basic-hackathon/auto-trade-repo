@@ -39,9 +39,6 @@ jobs:
       - name: terraform plan（ドリフト検知）
         id: plan
         working-directory: infra/terraform/envs/prod
-        # -detailed-exitcode: 差分あり=2, 差分なし=0, エラー=1
-        # 差分あり(2)の場合もエラー扱いにしないため continue-on-error: true
-        continue-on-error: true
         env:
           # tfvars の代わりに TF_VAR_* 環境変数で渡す
           # github.repository_owner はワークフロー実行リポジトリの所有者を自動取得する組み込みコンテキスト
@@ -52,7 +49,7 @@ jobs:
           TF_VAR_tfstate_kms_key_id: ${{ vars.TF_STATE_KMS_KEY_ID }}
           TF_VAR_basic_auth_username: ${{ secrets.BASIC_AUTH_USERNAME }}
           TF_VAR_basic_auth_password: ${{ secrets.BASIC_AUTH_PASSWORD }}
-        run: terraform plan -no-color 2>&1
+        run: terraform plan -no-color
 
       - name: デバッグ（exitcode 確認）
         if: always()
