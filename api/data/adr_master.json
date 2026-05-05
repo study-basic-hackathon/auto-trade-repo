@@ -84,8 +84,8 @@
     "us_exchange": "NYSE",
     "industry": "その他金融・リース",
     "adr_shares_per_adr": 5.0,
-    "adr_ratio_note": "1 ADR = 5 common shares",
-    "is_active": true
+    "adr_ratio_note": "1 ADR = 5 common shares (ADR program terminated 2021-08; ticker IX now refers to a different security)",
+    "is_active": false
   },
   {
     "name": "武田薬品工業",
