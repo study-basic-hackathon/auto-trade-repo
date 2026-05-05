@@ -39,6 +39,7 @@ jobs:
       - name: terraform plan（ドリフト検知）
         id: drift-check
         working-directory: infra/terraform/envs/prod
+        continue-on-error: true
         env:
           # tfvars の代わりに TF_VAR_* 環境変数で渡す
           # github.repository_owner はワークフロー実行リポジトリの所有者を自動取得する組み込みコンテキスト
