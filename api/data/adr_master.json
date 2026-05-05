@@ -1,0 +1,123 @@
+[
+  {
+    "name": "トヨタ自動車",
+    "tse_code": "7203",
+    "tse_ticker": "7203.T",
+    "adr": "TM",
+    "us_exchange": "NYSE",
+    "industry": "輸送用機器・自動車",
+    "adr_shares_per_adr": 10.0,
+    "adr_ratio_note": "1 ADR = 10 ordinary shares",
+    "is_active": true
+  },
+  {
+    "name": "本田技研工業",
+    "tse_code": "7267",
+    "tse_ticker": "7267.T",
+    "adr": "HMC",
+    "us_exchange": "NYSE",
+    "industry": "輸送用機器・自動車",
+    "adr_shares_per_adr": 3.0,
+    "adr_ratio_note": "1 ADR = 3 underlying shares",
+    "is_active": true
+  },
+  {
+    "name": "ソニーグループ",
+    "tse_code": "6758",
+    "tse_ticker": "6758.T",
+    "adr": "SONY",
+    "us_exchange": "NYSE",
+    "industry": "電気機器・エンタメ",
+    "adr_shares_per_adr": 1.0,
+    "adr_ratio_note": "ORD:DR = 1:1",
+    "is_active": true
+  },
+  {
+    "name": "三菱UFJフィナンシャル・グループ",
+    "tse_code": "8306",
+    "tse_ticker": "8306.T",
+    "adr": "MUFG",
+    "us_exchange": "NYSE",
+    "industry": "銀行",
+    "adr_shares_per_adr": 1.0,
+    "adr_ratio_note": "Share / Depositary Receipt = 1/1",
+    "is_active": true
+  },
+  {
+    "name": "三井住友フィナンシャルグループ",
+    "tse_code": "8316",
+    "tse_ticker": "8316.T",
+    "adr": "SMFG",
+    "us_exchange": "NYSE",
+    "industry": "銀行",
+    "adr_shares_per_adr": 0.6,
+    "adr_ratio_note": "1 ADR = 0.6 common share",
+    "is_active": true
+  },
+  {
+    "name": "みずほフィナンシャルグループ",
+    "tse_code": "8411",
+    "tse_ticker": "8411.T",
+    "adr": "MFG",
+    "us_exchange": "NYSE",
+    "industry": "銀行",
+    "adr_shares_per_adr": 0.2,
+    "adr_ratio_note": "5 ADRs = 1 underlying share",
+    "is_active": true
+  },
+  {
+    "name": "野村ホールディングス",
+    "tse_code": "8604",
+    "tse_ticker": "8604.T",
+    "adr": "NMR",
+    "us_exchange": "NYSE",
+    "industry": "証券・金融サービス",
+    "adr_shares_per_adr": 1.0,
+    "adr_ratio_note": "ORD:DR = 1:1",
+    "is_active": true
+  },
+  {
+    "name": "オリックス",
+    "tse_code": "8591",
+    "tse_ticker": "8591.T",
+    "adr": "IX",
+    "us_exchange": "NYSE",
+    "industry": "その他金融・リース",
+    "adr_shares_per_adr": 5.0,
+    "adr_ratio_note": "1 ADR = 5 common shares (ADR program terminated 2021-08; ticker IX now refers to a different security)",
+    "is_active": false
+  },
+  {
+    "name": "武田薬品工業",
+    "tse_code": "4502",
+    "tse_ticker": "4502.T",
+    "adr": "TAK",
+    "us_exchange": "NYSE",
+    "industry": "医薬品",
+    "adr_shares_per_adr": 0.5,
+    "adr_ratio_note": "2 ADSs = 1 ordinary share",
+    "is_active": true
+  },
+  {
+    "name": "キヤノン",
+    "tse_code": "7751",
+    "tse_ticker": "7751.T",
+    "adr": "CAJPY",
+    "us_exchange": "OTC",
+    "industry": "電気機器",
+    "adr_shares_per_adr": 1.0,
+    "adr_ratio_note": "ORD:DR = 1:1",
+    "is_active": true
+  },
+  {
+    "name": "京セラ",
+    "tse_code": "6971",
+    "tse_ticker": "6971.T",
+    "adr": "KYOCY",
+    "us_exchange": "OTC",
+    "industry": "電気機器",
+    "adr_shares_per_adr": 1.0,
+    "adr_ratio_note": "ORD:DR = 1:1",
+    "is_active": true
+  }
+]
