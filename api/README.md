@@ -39,6 +39,7 @@
 | `GET /api/predictions/latest` | **最新の予測 1 件** | ダッシュボード上部の「今日の予想」表示 |
 | `GET /api/predictions?days=N` | **直近 N 日分の予測一覧** | 予測の推移チャート / 履歴テーブル |
 | `GET /api/metrics/accuracy?days=N` | **過去 N 日間の的中率・誤差** | 「直近の的中履歴」「精度サマリー」表示 |
+| `GET /api/adr/deviation` | **東証銘柄と ADR (米国上場) の乖離率** | 「主要企業 ADR 乖離」テーブル |
 | `GET /api/getdaytradelist` | デイトレード注目銘柄 | 既存。注目銘柄テーブル |
 | `GET /api/health` | 死活確認 | 通常は使わない (運用監視用) |
 | `GET /api/sample/predictions` | サンプルデータ (旧形式) | 動作確認用。本番表示には使わないでください |
@@ -285,7 +286,107 @@ data.by_date.forEach(row => {
 
 ---
 
-### 3.4 `GET /api/getdaytradelist` — デイトレード注目銘柄 (既存)
+### 3.4 `GET /api/adr/deviation` — 東証銘柄と ADR の乖離率
+
+東証に上場する日本企業について、対応する ADR (米国預託証券) との価格乖離率を返します。ダッシュボードの「主要企業 ADR 乖離」テーブルにそのまま使えます。
+
+**乖離率の意味**: 円換算後の ADR 終値が東証終値より高ければプラス (= **米国市場で買われている = 翌営業日の東京で買い気配**)、マイナスなら売り気配の傾向。
+
+#### クエリパラメータ
+| パラメータ | 型 | 必須 | デフォルト | 説明 |
+|---|---|---|---|---|
+| `no_cache` | 真偽 | 任意 | `false` | `true` で強制再取得 (通常は不要) |
+
+#### キャッシュ仕様
+yfinance を内部で 12 回叩くため、初回は **約 5〜13 秒** かかります。レスポンスは **10 分間メモリにキャッシュ**され、2 回目以降は瞬時に返ります。
+
+#### レスポンス例
+
+```json
+{
+  "fetched_at": "2026-05-05T10:58:48+09:00",
+  "usd_jpy": 157.211,
+  "count": 11,
+  "cached": false,
+  "cache_age_seconds": 0,
+  "items": [
+    {
+      "name": "トヨタ自動車",
+      "tse_code": "7203",
+      "adr": "TM",
+      "us_exchange": "NYSE",
+      "industry": "輸送用機器・自動車",
+      "adr_shares_per_adr": 10.0,
+      "tse_close": 3000.00,
+      "adr_close_usd": 188.27,
+      "adr_close_jpy": 2960.28,
+      "deviation_pct": -1.32
+    },
+    ...
+  ]
+}
+```
+
+#### フィールドの意味
+
+| フィールド | 説明 |
+|---|---|
+| `fetched_at` | 価格を取得した日時 (JST) |
+| `usd_jpy` | 計算に使った USD/JPY レート |
+| `count` | 銘柄件数 |
+| `cached` | キャッシュからの応答か (true/false) |
+| `cache_age_seconds` | キャッシュ生成からの経過秒数 |
+| `items[].name` | 銘柄名 (日本語) |
+| `items[].tse_code` | 東証銘柄コード (4桁、ゼロ埋め) |
+| `items[].adr` | ADR ティッカー |
+| `items[].us_exchange` | 米国取引所 (NYSE / NASDAQ など) |
+| `items[].industry` | 業種 |
+| `items[].adr_shares_per_adr` | 1 ADR が表す原株数 (例: 10 = 1ADR = 普通株10株) |
+| `items[].tse_close` | 東証直近終値 (円) |
+| `items[].adr_close_usd` | ADR 直近終値 (米ドル) |
+| `items[].adr_close_jpy` | **ADR 終値の円換算** (= adr_close_usd × usd_jpy ÷ adr_shares_per_adr) |
+| `items[].deviation_pct` | **乖離率 (%)** = (adr_close_jpy / tse_close - 1) × 100 |
+
+価格取得に失敗した銘柄は `tse_close` / `adr_close_usd` / `adr_close_jpy` / `deviation_pct` が `null` になります。
+
+#### JavaScript 使用例
+
+```javascript
+const res = await fetch("/api/adr/deviation");
+const data = await res.json();
+
+// 乖離率の絶対値で降順ソート、上位10件をテーブル表示
+const sorted = data.items
+  .filter(it => it.deviation_pct !== null)
+  .sort((a, b) => Math.abs(b.deviation_pct) - Math.abs(a.deviation_pct))
+  .slice(0, 10);
+
+const tbody = document.getElementById("adr-tbody");
+sorted.forEach(it => {
+  const isUp = it.deviation_pct >= 0;
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td>${it.name}</td>
+    <td>${it.tse_code}</td>
+    <td>${it.tse_close.toLocaleString()}</td>
+    <td>${it.adr_close_jpy.toLocaleString()}</td>
+    <td class="${isUp ? 'up' : 'down'}">${isUp ? '▲' : '▼'} ${Math.abs(it.deviation_pct).toFixed(2)}%</td>
+    <td>${isUp ? '▲ 買い気配' : '▼ 売り気配'}</td>
+  `;
+  tbody.appendChild(tr);
+});
+```
+
+#### 注意点
+
+- **初回呼び出しは10秒前後かかる**ことがあります。フロント側でローディング表示を出してください。同じセッションで2回目以降は瞬時に返ります。
+- USD/JPY 取得に失敗すると **HTTP 502** を返します。
+- マスタは `api/data/adr_master.json` で管理。銘柄追加/削除はバックエンド担当へ依頼してください。
+- 一部銘柄 (例: ORIX) は ADR 上場廃止により `deviation_pct` が異常値になる可能性があります。マスタ調整中。
+
+---
+
+### 3.5 `GET /api/getdaytradelist` — デイトレード注目銘柄 (既存)
 
 Yahoo!ファイナンスのランキングを集計して、売買代金 × 出来高増加率の両条件を満たす銘柄を返します。
 
