@@ -29,6 +29,8 @@ jobs:
 
       - name: Terraform セットアップ
         uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
 
       - name: terraform init
         working-directory: infra/terraform/envs/prod
@@ -53,7 +55,14 @@ jobs:
           TF_VAR_basic_auth_username: ${{ secrets.BASIC_AUTH_USERNAME }}
           TF_VAR_basic_auth_password: ${{ secrets.BASIC_AUTH_PASSWORD }}
         run: |
-          terraform plan -no-color
+          terraform plan \
+            -detailed-exitcode \
+            -no-color \
+            2>&1 | tee plan_output.txt
+          EXITCODE=$?
+          echo "terraform plan exitcode=${EXITCODE}"
+          echo "exitcode=${EXITCODE}" >> "$GITHUB_OUTPUT"
+          exit 0
 
       - name: デバッグ（exitcode 確認）
         if: always()
