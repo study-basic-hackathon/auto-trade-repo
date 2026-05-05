@@ -49,7 +49,7 @@ jobs:
           TF_VAR_tfstate_kms_key_id: ${{ vars.TF_STATE_KMS_KEY_ID }}
           TF_VAR_basic_auth_username: ${{ secrets.BASIC_AUTH_USERNAME }}
           TF_VAR_basic_auth_password: ${{ secrets.BASIC_AUTH_PASSWORD }}
-        run: terraform plan -no-color
+        run: terraform plan -no-color -detailed-exitcode
 
       - name: デバッグ
         if: always()
