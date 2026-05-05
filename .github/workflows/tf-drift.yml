@@ -39,6 +39,8 @@ jobs:
       - name: terraform plan（ドリフト検知）
         id: drift-check
         working-directory: infra/terraform/envs/prod
+        # ここではterraform planコマンドの出力行数が多くなった時にコマンドは成功しているけどGHAの仕様上エラーになってしまうことの回避のために書いている
+        # 決してterraform plan -detailed-exitcodeで終了コードが2になってしまうことの対策ではない
         continue-on-error: true
         env:
           # tfvars の代わりに TF_VAR_* 環境変数で渡す
