@@ -1,6 +1,12 @@
 # Pythonの軽量な公式イメージを使用
 FROM python:3.14.4-slim
 
+# Python の動作設定:
+# - PYTHONDONTWRITEBYTECODE=1: .pyc を生成せず、volume mount 先に __pycache__ を作らない
+# - PYTHONUNBUFFERED=1: 標準出力/標準エラーをバッファリングせず CloudWatch にすぐ流す
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 # uvをインストール
 COPY --from=ghcr.io/astral-sh/uv:0.11.9 /uv /uvx /bin/
 
@@ -14,8 +20,9 @@ COPY api/pyproject.toml api/uv.lock ./
 
 # uv syncでパッケージを /app/.venv にインストール。
 # api パッケージ本体は /api 直下に配置して uvicorn から直接 import させるため、
-# --no-install-project でプロジェクト自身のインストールはスキップする
-RUN uv sync --no-install-project
+# --no-install-project でプロジェクト自身のインストールはスキップする。
+# --frozen で uv.lock から逸脱した解決を禁止し、ビルドの再現性を担保する
+RUN uv sync --frozen --no-install-project
 
 # 仮想環境のパスを環境変数に追加
 ENV PATH="/app/.venv/bin:$PATH"
