@@ -1,11 +1,7 @@
-# Pythonの軽量な公式イメージを使用
-FROM python:3.14.4-slim
-
-# Python の動作設定:
-# - PYTHONDONTWRITEBYTECODE=1: .pyc を生成せず、volume mount 先に __pycache__ を作らない
-# - PYTHONUNBUFFERED=1: 標準出力/標準エラーをバッファリングせず CloudWatch にすぐ流す
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+# ============================================================
+# builder stage: 依存パッケージを /app/.venv に解決するためだけのステージ
+# ============================================================
+FROM python:3.14.4-slim AS builder
 
 # uvをインストール
 COPY --from=ghcr.io/astral-sh/uv:0.11.9 /uv /uvx /bin/
@@ -23,6 +19,21 @@ COPY api/pyproject.toml api/uv.lock ./
 # --no-install-project でプロジェクト自身のインストールはスキップする。
 # --frozen で uv.lock から逸脱した解決を禁止し、ビルドの再現性を担保する
 RUN uv sync --frozen --no-install-project
+
+# ============================================================
+# runtime stage: builder から /app/.venv だけ持ち込み、uv 本体は同梱しない
+# ============================================================
+FROM python:3.14.4-slim AS runtime
+
+# Python の動作設定:
+# - PYTHONDONTWRITEBYTECODE=1: .pyc を生成せず、volume mount 先に __pycache__ を作らない
+# - PYTHONUNBUFFERED=1: 標準出力/標準エラーをバッファリングせず CloudWatch にすぐ流す
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# builderで構築した venv をそのままのパスでコピーする。
+# venv 内のスクリプトは絶対パス（/app/.venv/bin/python）を参照するため、stage 間でパスを揃える必要がある
+COPY --from=builder /app /app
 
 # 仮想環境のパスを環境変数に追加
 ENV PATH="/app/.venv/bin:$PATH"
