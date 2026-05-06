@@ -2,7 +2,7 @@
 FROM python:3.14.4-slim
 
 # uvをインストール
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:python3.14-alpine3.23 /uv /uvx /bin/
 
 # 依存パッケージのインストール用ディレクトリ
 WORKDIR /app
