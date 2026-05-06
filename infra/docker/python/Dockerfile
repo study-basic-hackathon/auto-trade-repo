@@ -22,5 +22,12 @@ WORKDIR /api
 # アプリケーションコードをコピー（ローカルはボリュームマウントで上書きされる）
 COPY api/ /api/
 
+# 非rootユーザーを作成し、/app と /api の所有権を付け替える
+RUN useradd --create-home --uid 1000 app \
+    && chown -R app:app /app /api
+
+# 以降のプロセスは非rootユーザーで実行する
+USER app
+
 # コンテナ起動時にサーバーをポート8080で立ち上げる
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
