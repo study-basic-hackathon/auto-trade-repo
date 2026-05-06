@@ -1,10 +1,18 @@
 from fastapi import FastAPI, HTTPException, Query
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 import json
+import math
 import os
+import time
 from typing import Any
 import boto3
+from botocore.exceptions import ClientError
 import requests
 import uvicorn
+import yfinance as yf
+
+JST = timezone(timedelta(hours=9))
 
 # Yahoo!ファイナンスのページ内に埋め込まれている JSON データの開始位置です。
 PRELOADED_STATE_MARKER = "window.__PRELOADED_STATE__ = "
@@ -185,6 +193,500 @@ def collect_day_trade_list(
 
     return merged_rows
 
+
+
+def _recent_year_months(today: date, n: int = 12) -> list[str]:
+    """today を含めて直近 n ヶ月分の YYYY-MM 文字列を新しい順で返す。"""
+    out: list[str] = []
+    cur = today.replace(day=1)
+    for _ in range(n):
+        out.append(cur.strftime("%Y-%m"))
+        cur = (cur - timedelta(days=1)).replace(day=1)
+    return out
+
+
+def _read_jsonl_from_s3(
+    s3, bucket: str, prefix: str, ticker: str, months: list[str]
+) -> list[dict[str, Any]]:
+    """{prefix}/{ticker}.YYYY-MM.jsonl 形式のファイル群を全て読み込んで結合する。"""
+    records: list[dict[str, Any]] = []
+    for ym in months:
+        key = f"{prefix}/{ticker}.{ym}.jsonl"
+        try:
+            obj = s3.get_object(Bucket=bucket, Key=key)
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
+                continue
+            raise
+        for line in obj["Body"].read().decode("utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            records.append(json.loads(line))
+    return records
+
+
+def _span_months(cutoff: date, today: date) -> list[str]:
+    """[cutoff, today] 期間に該当する YYYY-MM のリストを古い順で返す。"""
+    months: set[str] = set()
+    cur = cutoff.replace(day=1)
+    last = today.replace(day=1)
+    while cur <= last:
+        months.add(cur.strftime("%Y-%m"))
+        if cur.month == 12:
+            cur = cur.replace(year=cur.year + 1, month=1)
+        else:
+            cur = cur.replace(month=cur.month + 1)
+    return sorted(months)
+
+
+def _aggregate_accuracy(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """精度指標 (direction_accuracy, MAE, MAPE, RMSE, returns_R²) を集計する。"""
+    n = len(records)
+    if n == 0:
+        return {
+            "samples": 0,
+            "direction_accuracy": None,
+            "mae": None,
+            "mape": None,
+            "rmse": None,
+            "returns_r2": None,
+        }
+
+    hits = sum(1 for r in records if r.get("hit"))
+    abs_errors = [float(r["abs_error"]) for r in records]
+    abs_pct_errors = [float(r["abs_pct_error"]) for r in records]
+    mae = sum(abs_errors) / n
+    mape = sum(abs_pct_errors) / n
+    rmse = math.sqrt(sum(e * e for e in abs_errors) / n)
+
+    # 対数リターンベースの R² (両フィールドが揃っている件のみ)
+    pairs = [
+        (float(r["actual_log_return"]), float(r["predicted_log_return"]))
+        for r in records
+        if r.get("actual_log_return") is not None
+        and r.get("predicted_log_return") is not None
+    ]
+    if len(pairs) >= 2:
+        actual = [a for a, _ in pairs]
+        mean_a = sum(actual) / len(actual)
+        ss_tot = sum((a - mean_a) ** 2 for a in actual)
+        ss_res = sum((a - p) ** 2 for a, p in pairs)
+        returns_r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else None
+    else:
+        returns_r2 = None
+
+    return {
+        "samples": n,
+        "direction_accuracy": round(hits / n, 4),
+        "mae": round(mae, 2),
+        "mape": round(mape, 6),
+        "rmse": round(rmse, 2),
+        "returns_r2": round(returns_r2, 4) if returns_r2 is not None else None,
+    }
+
+
+@app.get("/api/metrics/accuracy")
+def metrics_accuracy(
+    days: int = Query(default=30, ge=1, le=730),
+    ticker: str = Query(default="n225"),
+) -> dict[str, Any]:
+    """過去 days 日間の予測精度を集計して返す。
+
+    metrics/{ticker}.YYYY-MM.jsonl を読み、actual_target_date が
+    [today - days, today] の範囲内のレコードを集計対象とする。
+    """
+    today = datetime.now(JST).date()
+    cutoff = today - timedelta(days=days)
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("ENDPOINT_URL"),
+        aws_access_key_id=os.environ.get("ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("SECRET_KEY"),
+    )
+    bucket = os.environ["S3_BUCKET_NAME"]
+
+    all_records = _read_jsonl_from_s3(s3, bucket, "metrics", ticker, _span_months(cutoff, today))
+
+    # 期間でフィルタ
+    in_window: list[dict[str, Any]] = []
+    for r in all_records:
+        target_str = r.get("actual_target_date")
+        if not target_str:
+            continue
+        try:
+            target = datetime.strptime(target_str, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if cutoff <= target <= today:
+            in_window.append(r)
+
+    in_window.sort(key=lambda r: r["actual_target_date"])
+
+    summary = _aggregate_accuracy(in_window)
+
+    return {
+        "ticker": ticker,
+        "window_days": days,
+        "from": cutoff.isoformat(),
+        "to": today.isoformat(),
+        **summary,
+        "by_date": [
+            {
+                "actual_target_date": r["actual_target_date"],
+                "as_of_date": r.get("as_of_date"),
+                "predicted_close": r.get("predicted_close"),
+                "actual_close": r.get("actual_close"),
+                "prediction_sign": r.get("prediction_sign"),
+                "actual_sign": r.get("actual_sign"),
+                "hit": r.get("hit"),
+                "abs_error": r.get("abs_error"),
+                "abs_pct_error": r.get("abs_pct_error"),
+            }
+            for r in in_window
+        ],
+    }
+
+
+@app.get("/api/predictions/latest")
+def predictions_latest(
+    ticker: str = Query(default="n225"),
+) -> dict[str, Any]:
+    """最新の予測レコードを 1 件返す。
+
+    現在月から前月までを走査し、predicted_at が最も新しいレコードを返す。
+    レコードが 1 件もなければ 404。
+    """
+    today = datetime.now(JST).date()
+    # 現在月 + 前月をカバー (月初に当月ファイルが空のケースに備える)
+    months = [
+        (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m"),
+        today.strftime("%Y-%m"),
+    ]
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("ENDPOINT_URL"),
+        aws_access_key_id=os.environ.get("ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("SECRET_KEY"),
+    )
+    bucket = os.environ["S3_BUCKET_NAME"]
+
+    records = _read_jsonl_from_s3(s3, bucket, "predictions", ticker, months)
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No predictions found for ticker={ticker}",
+        )
+
+    # predicted_at で降順ソートし、最新を選択
+    records.sort(key=lambda r: r.get("predicted_at", ""), reverse=True)
+    return {
+        "ticker": ticker,
+        "prediction": records[0],
+    }
+
+
+@app.get("/api/predictions/explanation/latest")
+def predictions_explanation_latest(
+    ticker: str = Query(default="n225"),
+) -> dict[str, Any]:
+    """最新の特徴量寄与 (相関係数による予想根拠) を 1 件返す。
+
+    現在月から前月までを走査し、computed_at が最も新しいレコードを返す。
+    レコードが 1 件もなければ 404。
+    """
+    today = datetime.now(JST).date()
+    months = [
+        (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m"),
+        today.strftime("%Y-%m"),
+    ]
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("ENDPOINT_URL"),
+        aws_access_key_id=os.environ.get("ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("SECRET_KEY"),
+    )
+    bucket = os.environ["S3_BUCKET_NAME"]
+
+    records = _read_jsonl_from_s3(s3, bucket, "explanations", ticker, months)
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No explanations found for ticker={ticker}",
+        )
+
+    records.sort(key=lambda r: r.get("computed_at", ""), reverse=True)
+    return {
+        "ticker": ticker,
+        "explanation": records[0],
+    }
+
+
+@app.get("/api/predictions")
+def predictions_list(
+    days: int = Query(default=30, ge=1, le=730),
+    ticker: str = Query(default="n225"),
+) -> dict[str, Any]:
+    """直近 days 日間の予測レコードを古い順で返す。
+
+    target_date が [today - days, today] の範囲のレコードを対象。
+    """
+    today = datetime.now(JST).date()
+    cutoff = today - timedelta(days=days)
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("ENDPOINT_URL"),
+        aws_access_key_id=os.environ.get("ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("SECRET_KEY"),
+    )
+    bucket = os.environ["S3_BUCKET_NAME"]
+
+    all_records = _read_jsonl_from_s3(s3, bucket, "predictions", ticker, _span_months(cutoff, today))
+
+    # target_date でフィルタ
+    in_window: list[dict[str, Any]] = []
+    for r in all_records:
+        target_str = r.get("target_date")
+        if not target_str:
+            continue
+        try:
+            target = datetime.strptime(target_str, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if cutoff <= target <= today:
+            in_window.append(r)
+
+    in_window.sort(key=lambda r: (r.get("target_date", ""), r.get("predicted_at", "")))
+
+    return {
+        "ticker": ticker,
+        "window_days": days,
+        "from": cutoff.isoformat(),
+        "to": today.isoformat(),
+        "count": len(in_window),
+        "items": in_window,
+    }
+
+
+# ============================================================
+# 米国マーケット (前日終値)
+# ------------------------------------------------------------
+# NYダウ / NASDAQ / S&P500 / USD/JPY の直近終値と前日比を返す。
+# yfinance を 4 回叩くため 10 分間 TTL キャッシュ。
+# ============================================================
+
+_US_MARKETS_CACHE_TTL_SECONDS = 600  # 10 分
+_us_markets_cache: tuple[float, dict[str, Any]] | None = None
+
+# 表示順を保つため tuple のリストで定義 (キー, 表示名, yfinance シンボル)
+US_MARKET_TICKERS: list[tuple[str, str, str]] = [
+    ("dow",     "NYダウ",  "^DJI"),
+    ("nasdaq",  "NASDAQ",  "^IXIC"),
+    ("sp500",   "S&P 500", "^GSPC"),
+    ("usd_jpy", "USD/JPY", "JPY=X"),
+]
+
+
+def _yf_latest_close_with_change(
+    symbol: str, period: str = "10d"
+) -> dict[str, float] | None:
+    """yfinance で直近 2 営業日の終値を取得し close / change / change_pct を返す。
+
+    取得失敗・データ不足時は None。
+    """
+    try:
+        hist = yf.Ticker(symbol).history(
+            period=period, interval="1d", auto_adjust=False
+        )
+    except Exception:
+        return None
+    if hist is None or hist.empty or "Close" not in hist.columns:
+        return None
+    closes = hist["Close"].dropna()
+    if len(closes) < 2:
+        return None
+    latest = float(closes.iloc[-1])
+    prev = float(closes.iloc[-2])
+    change = latest - prev
+    change_pct = change / prev if prev != 0 else 0.0
+    return {"close": latest, "change": change, "change_pct": change_pct}
+
+
+def _compute_us_markets() -> dict[str, Any]:
+    """米国主要指数 + USD/JPY の直近終値と前日比を取得する。"""
+    items: dict[str, Any] = {}
+    for key, display_name, symbol in US_MARKET_TICKERS:
+        # yfinance のレート制限回避用に少し sleep
+        time.sleep(0.2)
+        data = _yf_latest_close_with_change(symbol)
+        if data is None:
+            items[key] = {
+                "name": display_name,
+                "symbol": symbol,
+                "close": None,
+                "change": None,
+                "change_pct": None,
+            }
+        else:
+            items[key] = {
+                "name": display_name,
+                "symbol": symbol,
+                "close": round(data["close"], 2),
+                "change": round(data["change"], 2),
+                "change_pct": round(data["change_pct"], 4),
+            }
+
+    return {
+        "fetched_at": datetime.now(JST).strftime("%Y-%m-%dT%H:%M:%S+09:00"),
+        "items": items,
+    }
+
+
+@app.get("/api/markets/us")
+def markets_us(
+    no_cache: bool = Query(default=False),
+) -> dict[str, Any]:
+    """米国主要指数 (NYダウ / NASDAQ / S&P500) と USD/JPY の直近終値を返す。
+
+    - データソース: yfinance
+    - キャッシュ: 10 分間メモリ保持。`?no_cache=true` で強制再取得
+    - 取得失敗した銘柄は close/change/change_pct が null になる
+    """
+    global _us_markets_cache
+
+    now = time.time()
+    if not no_cache and _us_markets_cache is not None:
+        cached_at, cached_value = _us_markets_cache
+        if now - cached_at < _US_MARKETS_CACHE_TTL_SECONDS:
+            return {
+                **cached_value,
+                "cached": True,
+                "cache_age_seconds": int(now - cached_at),
+            }
+
+    result = _compute_us_markets()
+    _us_markets_cache = (time.time(), result)
+    return {**result, "cached": False, "cache_age_seconds": 0}
+
+
+# ============================================================
+# ADR (米国預託証券) 乖離率
+# ------------------------------------------------------------
+# 日本企業の東証株価とADR(米国上場)の終値を比較し、円換算後の
+# 乖離率を返す。yfinance を呼ぶため重いので TTL キャッシュ。
+# ============================================================
+
+ADR_MASTER_PATH = Path(__file__).parent / "data" / "adr_master.json"
+_ADR_CACHE_TTL_SECONDS = 600  # 10 分
+_adr_cache: tuple[float, dict[str, Any]] | None = None
+
+
+def _load_adr_master() -> list[dict[str, Any]]:
+    """ADR マスタ JSON を読み込む。is_active=True のレコードのみ返す。"""
+    with open(ADR_MASTER_PATH, encoding="utf-8") as f:
+        records = json.load(f)
+    return [r for r in records if r.get("is_active") is True]
+
+
+def _yf_latest_close(ticker: str, period: str = "10d") -> float | None:
+    """yfinance で指定銘柄の直近終値 1 件を取得 (失敗時 None)。"""
+    try:
+        hist = yf.Ticker(ticker).history(
+            period=period, interval="1d", auto_adjust=False
+        )
+    except Exception:
+        return None
+    if hist is None or hist.empty or "Close" not in hist.columns:
+        return None
+    close_series = hist["Close"].dropna()
+    if close_series.empty:
+        return None
+    return float(close_series.iloc[-1])
+
+
+def _compute_adr_deviation() -> dict[str, Any]:
+    """全 ADR 銘柄について TSE 終値 / ADR 終値 / 乖離率を計算する。"""
+    master = _load_adr_master()
+
+    usd_jpy = _yf_latest_close("JPY=X")
+    if usd_jpy is None:
+        raise HTTPException(
+            status_code=502, detail="USD/JPY rate could not be fetched from yfinance"
+        )
+
+    items: list[dict[str, Any]] = []
+    for row in master:
+        # yfinance のレート制限回避用に少し sleep (notebook と同じ作法)
+        time.sleep(0.2)
+        tse_close = _yf_latest_close(row["tse_ticker"])
+        time.sleep(0.2)
+        adr_close_usd = _yf_latest_close(row["adr"])
+
+        adr_close_jpy: float | None = None
+        deviation_pct: float | None = None
+        ratio = row.get("adr_shares_per_adr")
+        if (
+            tse_close is not None
+            and adr_close_usd is not None
+            and ratio is not None
+            and float(ratio) > 0
+        ):
+            adr_close_jpy = adr_close_usd * usd_jpy / float(ratio)
+            deviation_pct = (adr_close_jpy / tse_close - 1) * 100
+
+        items.append(
+            {
+                "name": row.get("name"),
+                "tse_code": str(row.get("tse_code", "")).zfill(4),
+                "adr": row.get("adr"),
+                "us_exchange": row.get("us_exchange"),
+                "industry": row.get("industry"),
+                "adr_shares_per_adr": ratio,
+                "tse_close": round(tse_close, 2) if tse_close is not None else None,
+                "adr_close_usd": round(adr_close_usd, 4) if adr_close_usd is not None else None,
+                "adr_close_jpy": round(adr_close_jpy, 2) if adr_close_jpy is not None else None,
+                "deviation_pct": round(deviation_pct, 2) if deviation_pct is not None else None,
+            }
+        )
+
+    return {
+        "fetched_at": datetime.now(JST).strftime("%Y-%m-%dT%H:%M:%S+09:00"),
+        "usd_jpy": round(usd_jpy, 4),
+        "count": len(items),
+        "items": items,
+    }
+
+
+@app.get("/api/adr/deviation")
+def adr_deviation(
+    no_cache: bool = Query(default=False),
+) -> dict[str, Any]:
+    """東証銘柄と対応する ADR (米国預託証券) の乖離率を返す。
+
+    - データソース: 銘柄マスタは `api/data/adr_master.json`、価格は yfinance
+    - 計算式: ADR終値(USD) × USD/JPY ÷ adr_shares_per_adr → 円換算
+              乖離(%) = (円換算ADR終値 / 東証終値 - 1) × 100
+    - キャッシュ: 10 分間メモリ保持。`?no_cache=true` で強制再取得可能
+    """
+    global _adr_cache
+
+    now = time.time()
+    if not no_cache and _adr_cache is not None:
+        cached_at, cached_value = _adr_cache
+        if now - cached_at < _ADR_CACHE_TTL_SECONDS:
+            return {
+                **cached_value,
+                "cached": True,
+                "cache_age_seconds": int(now - cached_at),
+            }
+
+    result = _compute_adr_deviation()
+    _adr_cache = (time.time(), result)
+    return {**result, "cached": False, "cache_age_seconds": 0}
 
 
 @app.get("/api/sample/predictions")
