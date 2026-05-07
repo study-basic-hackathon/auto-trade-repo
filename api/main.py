@@ -617,7 +617,7 @@ def _build_pts_ranking_response(
 
 @app.get("/api/markets/pts/overnight")
 def pts_overnight(no_cache: bool = Query(default=False)) -> dict[str, Any]:
-    """PTS ナイトタイム売買代金 TOP20 + TSE 終値乖離率を返す。
+    """PTS ナイトタイム売買代金 TOP15 + TSE 終値乖離率を返す。
 
     引け後 16:30〜翌 6:00 の値動きを集計したもの。
     翌営業日の寄付きで動きそうな銘柄をデイトレーダーに提示する用途。
@@ -645,7 +645,7 @@ def pts_overnight(no_cache: bool = Query(default=False)) -> dict[str, Any]:
 
 @app.get("/api/markets/pts/premarket")
 def pts_premarket(no_cache: bool = Query(default=False)) -> dict[str, Any]:
-    """PTS デイタイム売買代金 TOP20 を返す (寄付前 GAP 候補)。
+    """PTS デイタイム売買代金 TOP15 を返す (寄付前 GAP 候補)。
 
     PTS デイは 8:20-16:00。TSE 寄付 (9:00) 前の 8:20-8:59 の値動きが
     GAP 寄付き予想の最良の先行指標。change_pct がそのまま GAP 推定値。
@@ -689,7 +689,7 @@ def _fetch_tse_avg_volume(ticker_code: str, days: int = 30) -> float | None:
 def _compute_pts_volume_surge_unfiltered() -> dict[str, Any]:
     """PTS ナイト出来高 TOP15 + TSE 30 日平均出来高比 を **フィルタ前** で構築する。
 
-    高コスト処理 (Kabutan HTTP + yfinance × 最大15銘柄) はここで実行され、
+    高コスト処理 (Kabutan HTTP + yfinance x 最大15銘柄) はここで実行され、
     結果を `_pts_volume_surge_cache` で再利用することで、`min_surge_ratio`
     の値を変えても都度 fetch が走らないようにする。
     """
@@ -797,7 +797,7 @@ def _fetch_polymarket_events(
 ) -> list[dict[str, Any]]:
     """Polymarket Gamma API からアクティブな event 一覧を取得する。
 
-    出来高降順で複数ページ取得 (デフォルト 3 ページ × 500 = 1500 events)。
+    出来高降順で複数ページ取得 (デフォルト 3 ページ x 500 = 1500 events)。
     主要マーケット + やや出来高の小さい (BOJ・USD/JPY 等) もカバー。
     """
     all_events: list[dict[str, Any]] = []
@@ -1304,8 +1304,8 @@ def adr_deviation(
     """東証銘柄と対応する ADR (米国預託証券) の乖離率を返す。
 
     - データソース: 銘柄マスタは `api/data/adr_master.json`、価格は yfinance
-    - 計算式: ADR終値(USD) × USD/JPY ÷ adr_shares_per_adr → 円換算
-              乖離(%) = (円換算ADR終値 / 東証終値 - 1) × 100
+    - 計算式: ADR終値(USD) x USD/JPY ÷ adr_shares_per_adr → 円換算
+              乖離(%) = (円換算ADR終値 / 東証終値 - 1) x 100
     - キャッシュ: 10 分間メモリ保持。`?no_cache=true` で強制再取得可能
     """
     global _adr_cache
