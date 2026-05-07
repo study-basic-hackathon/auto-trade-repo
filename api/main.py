@@ -501,9 +501,14 @@ def _strip_html(s: str) -> str:
     return _re.sub(r"\s+", " ", t)
 
 
+# U+FF0D FULLWIDTH HYPHEN-MINUS。Kabutan では未取引・該当なしを表す。
+# ASCII 半角 "-" と見分けにくいので Unicode escape で明示 (Ruff RUF001 対応)。
+_FULLWIDTH_HYPHEN = "\uFF0D"
+
+
 def _to_num(s: str) -> float | None:
     """カンマ・パーセント・空欄等を float | None に正規化する。"""
-    if not s or s in ("－", "-", "", "&nbsp;"):
+    if not s or s in (_FULLWIDTH_HYPHEN, "-", "", "&nbsp;"):
         return None
     cleaned = s.replace(",", "").replace("+", "").replace("%", "").strip()
     try:
@@ -681,27 +686,13 @@ def _fetch_tse_avg_volume(ticker_code: str, days: int = 30) -> float | None:
         return None
 
 
-@app.get("/api/markets/pts/volume_surge")
-def pts_volume_surge(
-    no_cache: bool = Query(default=False),
-    min_surge_ratio: float = Query(default=0.5, ge=0.0, le=10.0),
-) -> dict[str, Any]:
-    """PTS ナイト出来高 TOP15 と TSE 30 日平均出来高の比 (surge ratio) を返す。
+def _compute_pts_volume_surge_unfiltered() -> dict[str, Any]:
+    """PTS ナイト出来高 TOP15 + TSE 30 日平均出来高比 を **フィルタ前** で構築する。
 
-    PTS 出来高 / TSE 30日平均 が高いほど「異常な流動性」= 突発材料あり。
-    `min_surge_ratio` 以下のものは items から除外。
+    高コスト処理 (Kabutan HTTP + yfinance × 最大15銘柄) はここで実行され、
+    結果を `_pts_volume_surge_cache` で再利用することで、`min_surge_ratio`
+    の値を変えても都度 fetch が走らないようにする。
     """
-    global _pts_volume_surge_cache
-    now = time.time()
-    if not no_cache and _pts_volume_surge_cache is not None:
-        cached_at, cached_value = _pts_volume_surge_cache
-        if now - cached_at < _PTS_CACHE_TTL_SECONDS:
-            return {
-                **cached_value,
-                "cached": True,
-                "cache_age_seconds": int(now - cached_at),
-            }
-
     raw = _fetch_kabutan_pts_ranking(PTS_NIGHT_VOLUME_URL)[:15]
     items: list[dict[str, Any]] = []
     for r in raw:
@@ -712,8 +703,6 @@ def pts_volume_surge(
             # PTS 出来高は通常 TSE 出来高の数 % 程度なので、
             # surge_ratio が 0.5 を超えれば「異常」と判定できる経験則
             surge_ratio = pts_volume / avg_volume
-        if surge_ratio is None or surge_ratio < min_surge_ratio:
-            continue
         items.append(
             {
                 "code": r["code"],
@@ -729,17 +718,55 @@ def pts_volume_surge(
             }
         )
     items.sort(key=lambda x: x.get("surge_ratio") or 0, reverse=True)
-
-    result = {
+    return {
         "fetched_at": datetime.now(JST).strftime("%Y-%m-%dT%H:%M:%S+09:00"),
         "session": "night",
         "source": "kabutan + yfinance",
-        "min_surge_ratio": min_surge_ratio,
-        "count": len(items),
         "items": items,
     }
-    _pts_volume_surge_cache = (time.time(), result)
-    return {**result, "cached": False, "cache_age_seconds": 0}
+
+
+@app.get("/api/markets/pts/volume_surge")
+def pts_volume_surge(
+    no_cache: bool = Query(default=False),
+    min_surge_ratio: float = Query(default=0.5, ge=0.0, le=10.0),
+) -> dict[str, Any]:
+    """PTS ナイト出来高 TOP15 と TSE 30 日平均出来高の比 (surge ratio) を返す。
+
+    PTS 出来高 / TSE 30日平均 が高いほど「異常な流動性」= 突発材料あり。
+    `min_surge_ratio` 以下のものは items から除外。
+    """
+    global _pts_volume_surge_cache
+    now = time.time()
+    cached_at_secs: float | None = None
+    if not no_cache and _pts_volume_surge_cache is not None:
+        cached_at, cached_unfiltered = _pts_volume_surge_cache
+        if now - cached_at < _PTS_CACHE_TTL_SECONDS:
+            unfiltered = cached_unfiltered
+            cached_at_secs = cached_at
+
+    if cached_at_secs is None:
+        unfiltered = _compute_pts_volume_surge_unfiltered()
+        _pts_volume_surge_cache = (time.time(), unfiltered)
+
+    # キャッシュは **未フィルタ** で持ち、フィルタは毎回適用する。
+    # こうすることで、異なる `min_surge_ratio` の呼び出しでも
+    # 同じキャッシュを再利用しつつ正しい結果が返る。
+    filtered = [
+        it
+        for it in unfiltered["items"]
+        if it.get("surge_ratio") is not None
+        and it["surge_ratio"] >= min_surge_ratio
+    ]
+
+    return {
+        **unfiltered,
+        "min_surge_ratio": min_surge_ratio,
+        "count": len(filtered),
+        "items": filtered,
+        "cached": cached_at_secs is not None,
+        "cache_age_seconds": int(now - cached_at_secs) if cached_at_secs is not None else 0,
+    }
 
 
 # ============================================================
@@ -931,7 +958,9 @@ def _select_main_outcome(
                 total += float(o["probability"])
                 any_known = True
         if not any_known:
-            return {"name": "(residual)", "probability": None}
+            # 全 outcome の probability が None の場合、残余も計算不能。
+            # _unmatched フラグを立てて呼び出し側で available=False にできるようにする
+            return {"name": "(residual)", "probability": None, "_unmatched": True}
         residual = max(0.0, 1.0 - total)
         return {"name": "(residual)", "probability": residual}
 
