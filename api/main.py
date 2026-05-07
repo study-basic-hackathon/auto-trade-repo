@@ -473,6 +473,642 @@ def predictions_list(
 
 
 # ============================================================
+# PTS (Japannext / Kabutan 集計) — 翌朝寄付き予想・GAP 候補・出来高サージ
+# ------------------------------------------------------------
+# Kabutan の PTS ランキングページ (デイ/ナイト/出来高) をスクレイプし、
+# yfinance の TSE データと組み合わせてデイトレ向け情報を提供する。
+# ============================================================
+
+import re as _re
+
+KABUTAN_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+)
+PTS_NIGHT_VALUE_URL = "https://kabutan.jp/warning/pts_night_trading_value_ranking"
+PTS_DAY_VALUE_URL = "https://kabutan.jp/warning/pts_day_trading_value_ranking"
+PTS_NIGHT_VOLUME_URL = "https://kabutan.jp/warning/pts_night_volume_ranking"
+
+_PTS_CACHE_TTL_SECONDS = 300  # 5 分
+_pts_overnight_cache: tuple[float, dict[str, Any]] | None = None
+_pts_premarket_cache: tuple[float, dict[str, Any]] | None = None
+_pts_volume_surge_cache: tuple[float, dict[str, Any]] | None = None
+
+
+def _strip_html(s: str) -> str:
+    """HTML タグを除去して空白圧縮した平文を返す。"""
+    t = _re.sub(r"<[^>]+>", " ", s).strip()
+    return _re.sub(r"\s+", " ", t)
+
+
+# U+FF0D FULLWIDTH HYPHEN-MINUS。Kabutan では未取引・該当なしを表す。
+# ASCII 半角 "-" と見分けにくいので Unicode escape で明示 (Ruff RUF001 対応)。
+_FULLWIDTH_HYPHEN = "\uFF0D"
+
+
+def _to_num(s: str) -> float | None:
+    """カンマ・パーセント・空欄等を float | None に正規化する。"""
+    if not s or s in (_FULLWIDTH_HYPHEN, "-", "", "&nbsp;"):
+        return None
+    cleaned = s.replace(",", "").replace("+", "").replace("%", "").strip()
+    try:
+        return float(cleaned)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fetch_kabutan_pts_ranking(url: str) -> list[dict[str, Any]]:
+    """Kabutan の PTS ランキングページから各銘柄の情報を取得する。
+
+    返却フィールド (利用可能なもの):
+      - code: 銘柄コード (例 "9984", "285A")
+      - name: 銘柄名 (例 "ソフトバンクＧ")
+      - market: 市場区分 (例 "東Ｐ" = 東証プライム)
+      - tse_close: TSE 直近通常取引終値 (円)
+      - pts_price: PTS 直近約定値 (円)
+      - change_yen: PTS - TSE 差額
+      - change_pct: PTS - TSE 変化率 (%)
+      - metric: ランキングの指標値 (売買代金は 百万円、出来高は株数)
+    """
+    try:
+        resp = requests.get(
+            url,
+            headers={
+                "User-Agent": KABUTAN_USER_AGENT,
+                "Accept-Language": "ja,en-US;q=0.9",
+                "Accept": "text/html,application/xhtml+xml",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        print(f"[警告] Kabutan {url} 取得失敗: {e}")
+        return []
+
+    html = resp.text
+    items: list[dict[str, Any]] = []
+    # ランキングテーブルの行: 各 <tr> 内に 13 個前後の <th>/<td> があり、
+    # そのうちセル [0]=コード, [1]=銘柄名, [2]=市場, [5]=TSE終値, [6]=PTS価格,
+    # [7]=差額, [8]=変化率, [9]=指標値 (売買代金 or 出来高)
+    rows = _re.findall(r"<tr(?:\s[^>]*)?>(.*?)</tr>", html, _re.DOTALL)
+    for tr in rows:
+        if "/stock/?code=" not in tr:
+            continue
+        cells = _re.findall(r"<(?:th|td)[^>]*>(.*?)</(?:th|td)>", tr, _re.DOTALL)
+        if len(cells) < 10:
+            continue  # ヘッダ系・指数表示行など
+        code = _strip_html(cells[0])
+        if not _re.match(r"^[A-Z0-9]{4,5}$", code):
+            continue  # 4〜5 桁の銘柄コードでない行はスキップ
+
+        items.append(
+            {
+                "code": code,
+                "name": _strip_html(cells[1]),
+                "market": _strip_html(cells[2]),
+                "tse_close": _to_num(_strip_html(cells[5])) if len(cells) > 5 else None,
+                "pts_price": _to_num(_strip_html(cells[6])) if len(cells) > 6 else None,
+                "change_yen": _to_num(_strip_html(cells[7])) if len(cells) > 7 else None,
+                "change_pct": _to_num(_strip_html(cells[8])) if len(cells) > 8 else None,
+                "metric": _to_num(_strip_html(cells[9])) if len(cells) > 9 else None,
+            }
+        )
+    return items
+
+
+def _polymarket_url_for_code(code: str) -> str:
+    """銘柄コードから Kabutan の銘柄詳細ページ URL を返す。"""
+    return f"https://kabutan.jp/stock/?code={code}"
+
+
+def _build_pts_ranking_response(
+    url: str, session: str, metric_name: str, top_n: int = 20
+) -> dict[str, Any]:
+    """PTS ランキング (売買代金) を整形して返す共通ビルダー。"""
+    raw = _fetch_kabutan_pts_ranking(url)
+    items: list[dict[str, Any]] = []
+    for rank, r in enumerate(raw[:top_n], start=1):
+        items.append(
+            {
+                "rank": rank,
+                "code": r["code"],
+                "name": r["name"],
+                "market": r["market"],
+                "tse_close": r["tse_close"],
+                "pts_price": r["pts_price"],
+                "change_yen": r["change_yen"],
+                "change_pct": r["change_pct"],
+                metric_name: r["metric"],
+                "kabutan_url": _polymarket_url_for_code(r["code"]),
+            }
+        )
+    return {
+        "fetched_at": datetime.now(JST).strftime("%Y-%m-%dT%H:%M:%S+09:00"),
+        "session": session,
+        "source": "kabutan",
+        "count": len(items),
+        "items": items,
+    }
+
+
+# ----------------------------------------------------------------
+# 案 A: PTS ナイト + TSE 終値 統合配信 (翌朝寄付き要注目銘柄)
+# ----------------------------------------------------------------
+
+@app.get("/api/markets/pts/overnight")
+def pts_overnight(no_cache: bool = Query(default=False)) -> dict[str, Any]:
+    """PTS ナイトタイム売買代金 TOP15 + TSE 終値乖離率を返す。
+
+    引け後 16:30〜翌 6:00 の値動きを集計したもの。
+    翌営業日の寄付きで動きそうな銘柄をデイトレーダーに提示する用途。
+    """
+    global _pts_overnight_cache
+    now = time.time()
+    if not no_cache and _pts_overnight_cache is not None:
+        cached_at, cached_value = _pts_overnight_cache
+        if now - cached_at < _PTS_CACHE_TTL_SECONDS:
+            return {
+                **cached_value,
+                "cached": True,
+                "cache_age_seconds": int(now - cached_at),
+            }
+    result = _build_pts_ranking_response(
+        PTS_NIGHT_VALUE_URL, "night", "trading_value_million_jpy", top_n=15
+    )
+    _pts_overnight_cache = (time.time(), result)
+    return {**result, "cached": False, "cache_age_seconds": 0}
+
+
+# ----------------------------------------------------------------
+# 案 B: PTS デイ + GAP 候補 (寄付前 8:20〜9:00)
+# ----------------------------------------------------------------
+
+@app.get("/api/markets/pts/premarket")
+def pts_premarket(no_cache: bool = Query(default=False)) -> dict[str, Any]:
+    """PTS デイタイム売買代金 TOP15 を返す (寄付前 GAP 候補)。
+
+    PTS デイは 8:20-16:00。TSE 寄付 (9:00) 前の 8:20-8:59 の値動きが
+    GAP 寄付き予想の最良の先行指標。change_pct がそのまま GAP 推定値。
+    """
+    global _pts_premarket_cache
+    now = time.time()
+    if not no_cache and _pts_premarket_cache is not None:
+        cached_at, cached_value = _pts_premarket_cache
+        if now - cached_at < _PTS_CACHE_TTL_SECONDS:
+            return {
+                **cached_value,
+                "cached": True,
+                "cache_age_seconds": int(now - cached_at),
+            }
+    result = _build_pts_ranking_response(
+        PTS_DAY_VALUE_URL, "day", "trading_value_million_jpy", top_n=15
+    )
+    _pts_premarket_cache = (time.time(), result)
+    return {**result, "cached": False, "cache_age_seconds": 0}
+
+
+# ----------------------------------------------------------------
+# 案 C: PTS 出来高サージ検知 (突発ニュース反応の早期発見)
+# ----------------------------------------------------------------
+
+def _fetch_tse_avg_volume(ticker_code: str, days: int = 30) -> float | None:
+    """yfinance で {ticker}.T の過去 days 営業日の平均出来高 (株数) を返す。"""
+    try:
+        ticker = yf.Ticker(f"{ticker_code}.T")
+        hist = ticker.history(period=f"{days+10}d", interval="1d", auto_adjust=False)
+        if hist is None or hist.empty or "Volume" not in hist.columns:
+            return None
+        vols = hist["Volume"].dropna()
+        if vols.empty:
+            return None
+        return float(vols.tail(days).mean())
+    except Exception:
+        return None
+
+
+def _compute_pts_volume_surge_unfiltered() -> dict[str, Any]:
+    """PTS ナイト出来高 TOP15 + TSE 30 日平均出来高比 を **フィルタ前** で構築する。
+
+    高コスト処理 (Kabutan HTTP + yfinance x 最大15銘柄) はここで実行され、
+    結果を `_pts_volume_surge_cache` で再利用することで、`min_surge_ratio`
+    の値を変えても都度 fetch が走らないようにする。
+    """
+    raw = _fetch_kabutan_pts_ranking(PTS_NIGHT_VOLUME_URL)[:15]
+    items: list[dict[str, Any]] = []
+    for r in raw:
+        pts_volume = r["metric"]  # 出来高ページでは [9] が出来高 (株数)
+        avg_volume = _fetch_tse_avg_volume(r["code"], days=30)
+        surge_ratio = None
+        if pts_volume and avg_volume and avg_volume > 0:
+            # PTS 出来高は通常 TSE 出来高の数 % 程度なので、
+            # surge_ratio が 0.5 を超えれば「異常」と判定できる経験則
+            surge_ratio = pts_volume / avg_volume
+        items.append(
+            {
+                "code": r["code"],
+                "name": r["name"],
+                "market": r["market"],
+                "tse_close": r["tse_close"],
+                "pts_price": r["pts_price"],
+                "change_pct": r["change_pct"],
+                "pts_volume": pts_volume,
+                "tse_avg_volume_30d": round(avg_volume, 0) if avg_volume else None,
+                "surge_ratio": round(surge_ratio, 3) if surge_ratio else None,
+                "kabutan_url": _polymarket_url_for_code(r["code"]),
+            }
+        )
+    items.sort(key=lambda x: x.get("surge_ratio") or 0, reverse=True)
+    return {
+        "fetched_at": datetime.now(JST).strftime("%Y-%m-%dT%H:%M:%S+09:00"),
+        "session": "night",
+        "source": "kabutan + yfinance",
+        "items": items,
+    }
+
+
+@app.get("/api/markets/pts/volume_surge")
+def pts_volume_surge(
+    no_cache: bool = Query(default=False),
+    min_surge_ratio: float = Query(default=0.5, ge=0.0, le=10.0),
+) -> dict[str, Any]:
+    """PTS ナイト出来高 TOP15 と TSE 30 日平均出来高の比 (surge ratio) を返す。
+
+    PTS 出来高 / TSE 30日平均 が高いほど「異常な流動性」= 突発材料あり。
+    `min_surge_ratio` 以下のものは items から除外。
+    """
+    global _pts_volume_surge_cache
+    now = time.time()
+    cached_at_secs: float | None = None
+    if not no_cache and _pts_volume_surge_cache is not None:
+        cached_at, cached_unfiltered = _pts_volume_surge_cache
+        if now - cached_at < _PTS_CACHE_TTL_SECONDS:
+            unfiltered = cached_unfiltered
+            cached_at_secs = cached_at
+
+    if cached_at_secs is None:
+        unfiltered = _compute_pts_volume_surge_unfiltered()
+        _pts_volume_surge_cache = (time.time(), unfiltered)
+
+    # キャッシュは **未フィルタ** で持ち、フィルタは毎回適用する。
+    # こうすることで、異なる `min_surge_ratio` の呼び出しでも
+    # 同じキャッシュを再利用しつつ正しい結果が返る。
+    filtered = [
+        it
+        for it in unfiltered["items"]
+        if it.get("surge_ratio") is not None
+        and it["surge_ratio"] >= min_surge_ratio
+    ]
+
+    return {
+        **unfiltered,
+        "min_surge_ratio": min_surge_ratio,
+        "count": len(filtered),
+        "items": filtered,
+        "cached": cached_at_secs is not None,
+        "cache_age_seconds": int(now - cached_at_secs) if cached_at_secs is not None else 0,
+    }
+
+
+# ============================================================
+# Polymarket: 予想市場の確率データ (デイトレ補助のセンチメント指標)
+# ------------------------------------------------------------
+# Polymarket Gamma API (認証不要) から指定キーワードで該当する
+# event を見つけ、確率と出来高を返す。30 分 TTL キャッシュ。
+# ============================================================
+
+POLYMARKET_MASTER_PATH = Path(__file__).parent / "data" / "polymarket_master.json"
+POLYMARKET_GAMMA_URL = "https://gamma-api.polymarket.com/events"
+POLYMARKET_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+)
+_POLYMARKET_CACHE_TTL_SECONDS = 1800  # 30 分
+_polymarket_cache: tuple[float, dict[str, Any]] | None = None
+
+
+def _load_polymarket_master() -> list[dict[str, Any]]:
+    """Polymarket マスタ JSON を読み込む。"""
+    with open(POLYMARKET_MASTER_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _fetch_polymarket_events(
+    pages: int = 3, page_size: int = 500
+) -> list[dict[str, Any]]:
+    """Polymarket Gamma API からアクティブな event 一覧を取得する。
+
+    出来高降順で複数ページ取得 (デフォルト 3 ページ x 500 = 1500 events)。
+    主要マーケット + やや出来高の小さい (BOJ・USD/JPY 等) もカバー。
+    """
+    all_events: list[dict[str, Any]] = []
+    for page in range(pages):
+        try:
+            resp = requests.get(
+                POLYMARKET_GAMMA_URL,
+                params={
+                    "limit": page_size,
+                    "offset": page * page_size,
+                    "active": "true",
+                    "closed": "false",
+                    "order": "volume",
+                    "ascending": "false",
+                },
+                headers={"User-Agent": POLYMARKET_USER_AGENT},
+                timeout=15,
+            )
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            print(f"[警告] Polymarket events API 呼び出し失敗 (page {page}): {e}")
+            break
+        data = resp.json()
+        if not isinstance(data, list) or not data:
+            break
+        all_events.extend(data)
+        if len(data) < page_size:
+            break  # ページ末端
+    return all_events
+
+
+def _find_event_by_keywords(
+    keywords: list[str],
+    events: list[dict[str, Any]],
+    exclude_keywords: list[str] | None = None,
+    prefer_earliest_resolution: bool = False,
+) -> dict[str, Any] | None:
+    """slug/title に keywords を全て含む event を探す。
+
+    Args:
+        keywords: 全部含まれている必要がある語 (AND)
+        exclude_keywords: 1 つでも含まれていたら除外する語 (OR)
+        prefer_earliest_resolution:
+            True → endDate 昇順 (= 最も早く決着するもの) で先頭を返す。
+                   月次/週次の決定系を「次回開催」で自動ロールしたい場合に使う。
+            False → volume 降順 (= 最も出来高の大きいもの) で先頭を返す (既定挙動)。
+    """
+    needles = [kw.lower() for kw in keywords]
+    excludes = [kw.lower() for kw in (exclude_keywords or [])]
+    matches: list[dict[str, Any]] = []
+    for ev in events:
+        haystack = (
+            (ev.get("slug") or "").lower()
+            + " "
+            + (ev.get("title") or "").lower()
+        )
+        if not all(n in haystack for n in needles):
+            continue
+        if excludes and any(e in haystack for e in excludes):
+            continue
+        matches.append(ev)
+    if not matches:
+        return None
+
+    if prefer_earliest_resolution:
+        matches.sort(key=lambda e: e.get("endDate") or "9999-12-31T00:00:00Z")
+    else:
+        def _vol(ev: dict[str, Any]) -> float:
+            try:
+                return float(ev.get("volume") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+        matches.sort(key=_vol, reverse=True)
+    return matches[0]
+
+
+def _parse_event_outcomes(event: dict[str, Any]) -> list[dict[str, Any]]:
+    """event の sub-market 群を [{name, probability}] に整形する。
+
+    - sub-market が 1 つだけ: その outcomes (Yes/No 等) を直接返す
+    - 複数 sub-market: 各 sub-market の名前 + Yes 確率を outcome として返す
+    """
+    markets = event.get("markets") or []
+    if not markets:
+        return []
+
+    if len(markets) == 1:
+        m = markets[0]
+        outs = m.get("outcomes")
+        prices = m.get("outcomePrices")
+        if isinstance(outs, str):
+            try:
+                outs = json.loads(outs)
+            except json.JSONDecodeError:
+                outs = []
+        if isinstance(prices, str):
+            try:
+                prices = json.loads(prices)
+            except json.JSONDecodeError:
+                prices = []
+        outcomes: list[dict[str, Any]] = []
+        for i, name in enumerate(outs or []):
+            try:
+                p = float(prices[i]) if i < len(prices or []) else None
+            except (TypeError, ValueError):
+                p = None
+            outcomes.append({"name": str(name), "probability": p})
+        return outcomes
+
+    # 複数 sub-market: 各 sub-market の "Yes" 確率を outcome として扱う
+    outcomes = []
+    for m in markets:
+        outcome_name = (
+            m.get("groupItemTitle")
+            or m.get("question")
+            or m.get("slug")
+            or ""
+        )
+        outs = m.get("outcomes")
+        prices = m.get("outcomePrices")
+        if isinstance(outs, str):
+            try:
+                outs = json.loads(outs)
+            except json.JSONDecodeError:
+                outs = []
+        if isinstance(prices, str):
+            try:
+                prices = json.loads(prices)
+            except json.JSONDecodeError:
+                prices = []
+        yes_price = None
+        for i, name in enumerate(outs or []):
+            if str(name).strip().lower() == "yes" and i < len(prices or []):
+                try:
+                    yes_price = float(prices[i])
+                except (TypeError, ValueError):
+                    yes_price = None
+                break
+        outcomes.append({"name": str(outcome_name), "probability": yes_price})
+    return outcomes
+
+
+def _select_main_outcome(
+    outcomes: list[dict[str, Any]], match: str
+) -> dict[str, Any]:
+    """master の main_outcome_match に基づいて代表確率を選ぶ。
+
+    match の特殊値:
+      "_residual_": 1.0 - 全 outcome 確率の合計 (明示されない選択肢の確率を計算)
+    通常: outcomes の name に部分一致するものを返す (大小無視)
+    マッチしない場合は probability=None を返す (ラベルと値の乖離防止)。
+    """
+    if match == "_residual_":
+        total = 0.0
+        any_known = False
+        for o in outcomes:
+            if o.get("probability") is not None:
+                total += float(o["probability"])
+                any_known = True
+        if not any_known:
+            # 全 outcome の probability が None の場合、残余も計算不能。
+            # _unmatched フラグを立てて呼び出し側で available=False にできるようにする
+            return {"name": "(residual)", "probability": None, "_unmatched": True}
+        residual = max(0.0, 1.0 - total)
+        return {"name": "(residual)", "probability": residual}
+
+    needle = match.lower()
+    for o in outcomes:
+        if needle in (o.get("name") or "").lower():
+            return o
+    # 該当なしの場合: 先頭 outcome を返すと「ラベル(例: ↑165) と実値が無関係」
+    # の事故になるため、probability=None で返して呼び出し側で
+    # available=false 扱いできるようにする
+    return {"name": match, "probability": None, "_unmatched": True}
+
+
+def _build_polymarket_item(
+    master_entry: dict[str, Any], events: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """マスタ 1 件分について Polymarket データを引いて API レスポンス用 dict を組み立てる。"""
+    base = {
+        "rank": master_entry.get("rank"),
+        "label": master_entry.get("label"),
+        "category": master_entry.get("category"),
+        "category_key": master_entry.get("category_key"),
+        "description_jp": master_entry.get("description_jp", ""),
+        "impact_on_n225": master_entry.get("impact_on_n225", ""),
+    }
+
+    event = _find_event_by_keywords(
+        master_entry.get("search_keywords", []),
+        events,
+        exclude_keywords=master_entry.get("exclude_keywords"),
+        prefer_earliest_resolution=bool(
+            master_entry.get("prefer_earliest_resolution", False)
+        ),
+    )
+    if event is None:
+        return {
+            **base,
+            "slug": None,
+            "main_outcome": None,
+            "all_outcomes": [],
+            "volume_usd": None,
+            "liquidity_usd": None,
+            "resolution_date": None,
+            "polymarket_url": None,
+            "available": False,
+        }
+
+    outcomes = _parse_event_outcomes(event)
+    main = _select_main_outcome(
+        outcomes, master_entry.get("main_outcome_match", "yes")
+    )
+
+    # endDate は ISO 文字列。日付部分だけを取り出す
+    end_date_raw = event.get("endDate") or ""
+    resolution_date = end_date_raw.split("T")[0] if end_date_raw else None
+
+    try:
+        volume_usd = float(event.get("volume") or 0)
+    except (TypeError, ValueError):
+        volume_usd = None
+    try:
+        liquidity_usd = float(event.get("liquidity") or 0)
+    except (TypeError, ValueError):
+        liquidity_usd = None
+
+    slug = event.get("slug")
+    polymarket_url = f"https://polymarket.com/event/{slug}" if slug else None
+
+    return {
+        **base,
+        "slug": slug,
+        "main_outcome": {
+            "name": main.get("name"),
+            "name_jp": master_entry.get("main_outcome_name_jp"),
+            "probability": (
+                round(main["probability"], 4)
+                if main.get("probability") is not None
+                else None
+            ),
+        },
+        "all_outcomes": [
+            {
+                "name": o.get("name"),
+                "probability": (
+                    round(o["probability"], 4)
+                    if o.get("probability") is not None
+                    else None
+                ),
+            }
+            for o in outcomes
+        ],
+        "volume_usd": round(volume_usd, 2) if volume_usd is not None else None,
+        "liquidity_usd": (
+            round(liquidity_usd, 2) if liquidity_usd is not None else None
+        ),
+        "resolution_date": resolution_date,
+        "polymarket_url": polymarket_url,
+        # main_outcome_match に該当 outcome が見つからなかった場合は
+        # ラベルと実値の乖離事故を避けるため available=False とする
+        "available": not main.get("_unmatched", False),
+    }
+
+
+def _compute_polymarket_response() -> dict[str, Any]:
+    """マスタ全件分の Polymarket データを取得して返す。"""
+    master = _load_polymarket_master()
+    # pages=8 で約 4000 events をカバー (BOJ・USD/JPY・各種 recession など低出来高マーケットを含むため)
+    events = _fetch_polymarket_events(pages=8, page_size=500)
+
+    items = [_build_polymarket_item(m, events) for m in master]
+    items.sort(key=lambda x: x.get("rank") or 99)
+
+    return {
+        "fetched_at": datetime.now(JST).strftime("%Y-%m-%dT%H:%M:%S+09:00"),
+        "source": "polymarket-gamma-api",
+        "count": len(items),
+        "items": items,
+    }
+
+
+@app.get("/api/markets/polymarket")
+def markets_polymarket(
+    no_cache: bool = Query(default=False),
+) -> dict[str, Any]:
+    """Polymarket 予想市場の確率データを 11 マーケット分まとめて返す。
+
+    - 30 分 TTL キャッシュ
+    - `?no_cache=true` で強制再取得
+    - データソース失敗 / 該当 event 無しの個別マーケットは `available: false`
+    """
+    global _polymarket_cache
+
+    now = time.time()
+    if not no_cache and _polymarket_cache is not None:
+        cached_at, cached_value = _polymarket_cache
+        if now - cached_at < _POLYMARKET_CACHE_TTL_SECONDS:
+            return {
+                **cached_value,
+                "cached": True,
+                "cache_age_seconds": int(now - cached_at),
+            }
+
+    result = _compute_polymarket_response()
+    _polymarket_cache = (time.time(), result)
+    return {**result, "cached": False, "cache_age_seconds": 0}
+
+
+# ============================================================
 # 米国マーケット (前日終値)
 # ------------------------------------------------------------
 # NYダウ / NASDAQ / S&P500 / USD/JPY の直近終値と前日比を返す。
@@ -668,8 +1304,8 @@ def adr_deviation(
     """東証銘柄と対応する ADR (米国預託証券) の乖離率を返す。
 
     - データソース: 銘柄マスタは `api/data/adr_master.json`、価格は yfinance
-    - 計算式: ADR終値(USD) × USD/JPY ÷ adr_shares_per_adr → 円換算
-              乖離(%) = (円換算ADR終値 / 東証終値 - 1) × 100
+    - 計算式: ADR終値(USD) x USD/JPY ÷ adr_shares_per_adr → 円換算
+              乖離(%) = (円換算ADR終値 / 東証終値 - 1) x 100
     - キャッシュ: 10 分間メモリ保持。`?no_cache=true` で強制再取得可能
     """
     global _adr_cache
