@@ -628,7 +628,7 @@ def pts_overnight(no_cache: bool = Query(default=False)) -> dict[str, Any]:
                 "cache_age_seconds": int(now - cached_at),
             }
     result = _build_pts_ranking_response(
-        PTS_NIGHT_VALUE_URL, "night", "trading_value_million_jpy"
+        PTS_NIGHT_VALUE_URL, "night", "trading_value_million_jpy", top_n=15
     )
     _pts_overnight_cache = (time.time(), result)
     return {**result, "cached": False, "cache_age_seconds": 0}
@@ -656,7 +656,7 @@ def pts_premarket(no_cache: bool = Query(default=False)) -> dict[str, Any]:
                 "cache_age_seconds": int(now - cached_at),
             }
     result = _build_pts_ranking_response(
-        PTS_DAY_VALUE_URL, "day", "trading_value_million_jpy"
+        PTS_DAY_VALUE_URL, "day", "trading_value_million_jpy", top_n=15
     )
     _pts_premarket_cache = (time.time(), result)
     return {**result, "cached": False, "cache_age_seconds": 0}
@@ -921,6 +921,7 @@ def _select_main_outcome(
     match の特殊値:
       "_residual_": 1.0 - 全 outcome 確率の合計 (明示されない選択肢の確率を計算)
     通常: outcomes の name に部分一致するものを返す (大小無視)
+    マッチしない場合は probability=None を返す (ラベルと値の乖離防止)。
     """
     if match == "_residual_":
         total = 0.0
@@ -938,8 +939,10 @@ def _select_main_outcome(
     for o in outcomes:
         if needle in (o.get("name") or "").lower():
             return o
-    # 該当なしなら先頭 outcome をフォールバック
-    return outcomes[0] if outcomes else {"name": "", "probability": None}
+    # 該当なしの場合: 先頭 outcome を返すと「ラベル(例: ↑165) と実値が無関係」
+    # の事故になるため、probability=None で返して呼び出し側で
+    # available=false 扱いできるようにする
+    return {"name": match, "probability": None, "_unmatched": True}
 
 
 def _build_polymarket_item(
@@ -1026,7 +1029,9 @@ def _build_polymarket_item(
         ),
         "resolution_date": resolution_date,
         "polymarket_url": polymarket_url,
-        "available": True,
+        # main_outcome_match に該当 outcome が見つからなかった場合は
+        # ラベルと実値の乖離事故を避けるため available=False とする
+        "available": not main.get("_unmatched", False),
     }
 
 
@@ -1051,7 +1056,7 @@ def _compute_polymarket_response() -> dict[str, Any]:
 def markets_polymarket(
     no_cache: bool = Query(default=False),
 ) -> dict[str, Any]:
-    """Polymarket 予想市場の確率データを 10 マーケット分まとめて返す。
+    """Polymarket 予想市場の確率データを 11 マーケット分まとめて返す。
 
     - 30 分 TTL キャッシュ
     - `?no_cache=true` で強制再取得

@@ -102,7 +102,11 @@
     "category": "リスク選好",
     "category_key": "risk_appetite",
     "search_keywords": ["bitcoin", "hit"],
-    "exclude_keywords": ["microstrategy", "may", "june", "etf"],
+    "exclude_keywords": [
+      "microstrategy", "etf",
+      "january", "february", "march", "april", "may", "june",
+      "july", "august", "september", "october", "november", "december"
+    ],
     "prefer_earliest_resolution": false,
     "main_outcome_match": "200,000",
     "main_outcome_name_jp": "$200,000 到達",

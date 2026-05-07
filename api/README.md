@@ -751,7 +751,7 @@ Polymarket Gamma API を 8 ページ分 (約 4,000 events) 走査するため初
   "cached": false,
   "cache_age_seconds": 0,
   "source": "polymarket-gamma-api",
-  "count": 10,
+  "count": 11,
   "items": [
     {
       "rank": 1,
@@ -779,7 +779,7 @@ Polymarket Gamma API を 8 ページ分 (約 4,000 events) 走査するため初
       "impact_on_n225": "据え置き確率上昇 → ハト派観測弱まる → USD/JPY 上昇 → N225 上昇要因",
       "available": true
     }
-    /* ... 残り 9 件 ... */
+    /* ... 残り 10 件 ... */
   ]
 }
 ```
@@ -793,13 +793,13 @@ Polymarket Gamma API を 8 ページ分 (約 4,000 events) 走査するため初
 | `fetched_at` | 取得日時 (JST) |
 | `cached` / `cache_age_seconds` | キャッシュ状態 |
 | `source` | 常に `polymarket-gamma-api` |
-| `count` | 返却件数 (常に 10 想定) |
+| `count` | 返却件数 (常に 11 想定) |
 
 **`items[]` 各マーケット**
 
 | フィールド | 説明 |
 |---|---|
-| `rank` | 重要度ランク (1〜10、フロントの並び順保持に使う) |
+| `rank` | 重要度ランク (1〜11、フロントの並び順保持に使う) |
 | `slug` | Polymarket 上の一意 ID |
 | `label` | **日本語表示名** (カードのタイトル) |
 | `category` / `category_key` | カテゴリ表示名と英字キー (UI のフィルタ・色分け用) |
