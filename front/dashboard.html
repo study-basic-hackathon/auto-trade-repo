@@ -438,6 +438,42 @@
                 margin-top: 8px;
             }
 
+            /* ===== Today_Prediction_Card ===== */
+            .today-pred-card {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 24px;
+                padding: 8px 4px;
+            }
+
+            .today-pred-direction {
+                font-size: 56px;
+                font-weight: bold;
+                line-height: 1;
+                font-variant-numeric: tabular-nums;
+                white-space: nowrap;
+            }
+
+            .today-pred-meta {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                font-size: 14px;
+            }
+
+            .today-pred-meta .label {
+                color: var(--color-text-muted);
+                font-size: 12px;
+                margin-right: 6px;
+            }
+
+            .today-pred-meta .value {
+                font-variant-numeric: tabular-nums;
+                font-weight: bold;
+                font-size: 16px;
+            }
+
             /* ===== レスポンシブ ===== */
             @media (max-width: 600px) {
                 .market-cards {
@@ -511,6 +547,33 @@
                 </div>
             </section>
 
+            <!-- ②-0 今日のN225予想 -->
+            <section id="today-pred" aria-labelledby="today-title">
+                <h2 id="today-title">今日のN225寄付き予想</h2>
+
+                <!-- ローディングインジケータ -->
+                <div
+                    class="loading"
+                    role="status"
+                    aria-label="最新予想を読み込み中"
+                >
+                    読み込み中…
+                </div>
+
+                <!-- エラーメッセージ -->
+                <div
+                    class="error-message"
+                    role="alert"
+                    aria-live="assertive"
+                    hidden
+                ></div>
+
+                <!-- データ表示エリア -->
+                <div id="today-pred-content" hidden>
+                    <!-- renderLatestPrediction() によって描画される -->
+                </div>
+            </section>
+
             <!-- ② 日経225 方向性予想 -->
             <section id="n225-pred" aria-labelledby="n225-title">
                 <h2 id="n225-title">日経225 方向性予想</h2>
@@ -542,6 +605,15 @@
             <section id="us-market" aria-labelledby="us-title">
                 <h2 id="us-title">米国マーケット（前日終値）</h2>
 
+                <!-- ローディングインジケータ -->
+                <div
+                    class="loading"
+                    role="status"
+                    aria-label="米国マーケットを読み込み中"
+                >
+                    読み込み中…
+                </div>
+
                 <!-- エラーメッセージ -->
                 <div
                     class="error-message"
@@ -563,6 +635,15 @@
                     東証終値（前日）と NY 終値（円換算）の差。プラス＝買い優勢。
                 </p>
 
+                <!-- ローディングインジケータ -->
+                <div
+                    class="loading"
+                    role="status"
+                    aria-label="ADR乖離データを読み込み中"
+                >
+                    読み込み中…
+                </div>
+
                 <!-- エラーメッセージ -->
                 <div
                     class="error-message"
@@ -583,6 +664,15 @@
             <section id="features" aria-labelledby="feat-title">
                 <h2 id="feat-title">予想根拠（特徴量の寄与）</h2>
 
+                <!-- ローディングインジケータ -->
+                <div
+                    class="loading"
+                    role="status"
+                    aria-label="特徴量寄与を読み込み中"
+                >
+                    読み込み中…
+                </div>
+
                 <!-- エラーメッセージ -->
                 <div
                     class="error-message"
@@ -600,6 +690,15 @@
             <!-- ⑥ 的中履歴（History_Table） -->
             <section id="history" aria-labelledby="hist-title">
                 <h2 id="hist-title">直近の的中履歴（10営業日）</h2>
+
+                <!-- ローディングインジケータ -->
+                <div
+                    class="loading"
+                    role="status"
+                    aria-label="的中履歴を読み込み中"
+                >
+                    読み込み中…
+                </div>
 
                 <!-- エラーメッセージ -->
                 <div
@@ -624,14 +723,12 @@
         </footer>
 
         <script type="module">
-            // ===== 5.1: fetchDayTradeList =====
+            // ===== 共通 fetch ヘルパー =====
 
             /**
-             * /api/getdaytradelist を fetch し JSON を返す
-             * @returns {Promise<Object>} DayTradeListResponse
+             * 指定 URL を fetch し JSON を返す。失敗時は status 付き Error を throw する。
              */
-            async function fetchDayTradeList() {
-                const url = "/api/getdaytradelist";
+            async function fetchJson(url) {
                 const response = await fetch(url);
                 if (!response.ok) {
                     const err = new Error(`HTTP ${response.status}`);
@@ -641,21 +738,94 @@
                 return response.json();
             }
 
-            // ===== 5.1.2: fetchN225Predictions =====
+            // ===== 各エンドポイント fetch =====
 
-            /**
-             * /api/sample/predictions を fetch し JSON 配列を返す
-             * @returns {Promise<Array>} 予測結果の配列
-             */
+            /** /api/getdaytradelist デイトレード注目銘柄 */
+            const fetchDayTradeList = () => fetchJson("/api/getdaytradelist");
+
+            /** /api/predictions?days=30 直近の N225 予測一覧 */
             async function fetchN225Predictions() {
-                const url = "/api/sample/predictions";
-                const response = await fetch(url);
-                if (!response.ok) {
-                    const err = new Error(`HTTP ${response.status}`);
-                    err.status = response.status;
-                    throw err;
-                }
-                return response.json();
+                const data = await fetchJson("/api/predictions?days=30");
+                return data.items || [];
+            }
+
+            /** /api/predictions/latest 最新の N225 予測 1 件 */
+            const fetchLatestPrediction = () =>
+                fetchJson("/api/predictions/latest");
+
+            /** /api/markets/us 米国主要指数 + USD/JPY 直近終値 */
+            async function fetchUSMarket() {
+                const data = await fetchJson("/api/markets/us");
+                const items = data.items || {};
+                // API は snake_case (usd_jpy / change_pct)、レンダラは camelCase (usdJpy / changePct)。
+                // yfinance 取得失敗時は close 等が null なので、その場合はカード自体を非表示にする。
+                const toCamel = (m) => {
+                    if (!m || m.close === null || m.change === null) return null;
+                    return {
+                        close: m.close,
+                        change: m.change,
+                        changePct: m.change_pct,
+                    };
+                };
+                return {
+                    dow: toCamel(items.dow),
+                    nasdaq: toCamel(items.nasdaq),
+                    sp500: toCamel(items.sp500),
+                    usdJpy: toCamel(items.usd_jpy),
+                };
+            }
+
+            /** /api/adr/deviation 東証 vs ADR 乖離率 */
+            async function fetchAdrDeviation() {
+                const data = await fetchJson("/api/adr/deviation");
+                // deviation_pct は % 表記 (例: 1.85)、レンダラは小数 (例: 0.0185) を期待
+                return (data.items || [])
+                    .filter(
+                        (it) =>
+                            it.deviation_pct !== null &&
+                            it.tse_close !== null &&
+                            it.adr_close_jpy !== null,
+                    )
+                    .map((it) => ({
+                        name: it.name,
+                        code: it.tse_code,
+                        tseClose: it.tse_close,
+                        adrCloseJpy: it.adr_close_jpy,
+                        diffPct: it.deviation_pct / 100,
+                    }));
+            }
+
+            /** /api/predictions/explanation/latest 特徴量寄与 (相関係数) */
+            async function fetchFeatureContributions() {
+                const data = await fetchJson(
+                    "/api/predictions/explanation/latest",
+                );
+                const features = (data.explanation?.features || [])
+                    .filter((f) => f.contribution !== null)
+                    .slice(0, 10);
+                return features.map((f) => ({
+                    name: f.name,
+                    contribution: f.contribution,
+                }));
+            }
+
+            /** /api/metrics/accuracy?days=14 直近 14 日間の的中履歴 */
+            async function fetchAccuracyHistory() {
+                const data = await fetchJson("/api/metrics/accuracy?days=14");
+                // by_date を新しい順 → 直近 10 営業日に整形。renderHistoryTable は up/down 文字列を期待
+                const sorted = [...(data.by_date || [])].sort((a, b) =>
+                    b.actual_target_date.localeCompare(a.actual_target_date),
+                );
+                return sorted.slice(0, 10).map((r) => ({
+                    date: r.actual_target_date,
+                    predicted: r.prediction_sign === 1 ? "up" : "down",
+                    actual:
+                        r.actual_sign === 1
+                            ? "up"
+                            : r.actual_sign === -1
+                              ? "down"
+                              : null,
+                }));
             }
 
             // ===== 5.2: showLoading / showError / showContent =====
@@ -1052,6 +1222,54 @@
                 showContent("history");
             }
 
+            // ===== renderLatestPrediction =====
+
+            /**
+             * /api/predictions/latest のレスポンスを受け取り、
+             * 「今日のN225予想」カードを描画する。
+             */
+            function renderLatestPrediction(data) {
+                const content = document.getElementById("today-pred-content");
+                if (!content) return;
+
+                const p = data.prediction || {};
+                const isUp = p.prediction_sign === 1;
+                const dirClass = isUp ? "pos" : "neg";
+                const dirSymbol = isUp ? "▲" : "▼";
+                const dirLabel = isUp ? "上昇" : "下落";
+                const probPct =
+                    typeof p.probability_up === "number"
+                        ? (p.probability_up * 100).toFixed(1) + "%"
+                        : "—";
+                const predictedClose =
+                    typeof p.predicted_close === "number"
+                        ? p.predicted_close.toLocaleString("ja-JP", {
+                              maximumFractionDigits: 0,
+                          }) + " 円"
+                        : "—";
+                const predictedReturn =
+                    typeof p.predicted_return === "number"
+                        ? `${p.predicted_return >= 0 ? "+" : ""}${(p.predicted_return * 100).toFixed(2)}%`
+                        : "—";
+                const targetDate = p.target_date || "—";
+                const asOfDate = p.as_of_date || "—";
+
+                content.innerHTML = `
+        <div class="today-pred-card">
+          <div class="today-pred-direction ${dirClass}" aria-label="予想方向: ${dirLabel}">
+            ${dirSymbol} ${dirLabel}
+          </div>
+          <div class="today-pred-meta">
+            <div><span class="label">対象日</span><span class="value num">${targetDate}</span></div>
+            <div><span class="label">基準終値日</span><span class="value num">${asOfDate}</span></div>
+            <div><span class="label">予想終値</span><span class="value num">${predictedClose}</span></div>
+            <div><span class="label">予想騰落率</span><span class="value num ${dirClass}">${predictedReturn}</span></div>
+            <div><span class="label">上昇確率</span><span class="value num">${probPct}</span></div>
+          </div>
+        </div>`;
+                showContent("today-pred");
+            }
+
             // ===== 5.8: renderN225Predictions =====
 
             function renderN225Predictions(data) {
@@ -1105,167 +1323,85 @@
                 showContent("n225-pred");
             }
 
-            // ===== MOCK DATA（バックエンド未実装セクション用） =====
-
-            const MOCK_US_MARKET = {
-                dow: { close: 44364.15, change: +143.22, changePct: 0.0032 },
-                nasdaq: { close: 19462.31, change: -87.56, changePct: -0.0045 },
-                sp500: { close: 5963.12, change: +22.8, changePct: 0.0038 },
-                usdJpy: { close: 155.42, change: -0.33, changePct: -0.0021 },
-            };
-
-            const MOCK_ADR = [
-                {
-                    name: "トヨタ",
-                    code: "7203",
-                    tseClose: 2856,
-                    adrCloseJpy: 2893,
-                    diffPct: 0.013,
-                },
-                {
-                    name: "ソニーG",
-                    code: "6758",
-                    tseClose: 2451,
-                    adrCloseJpy: 2418,
-                    diffPct: -0.0135,
-                },
-                {
-                    name: "三菱UFJ",
-                    code: "8306",
-                    tseClose: 1842,
-                    adrCloseJpy: 1876,
-                    diffPct: 0.0185,
-                },
-                {
-                    name: "任天堂",
-                    code: "7974",
-                    tseClose: 8620,
-                    adrCloseJpy: 8543,
-                    diffPct: -0.0089,
-                },
-                {
-                    name: "キーエンス",
-                    code: "6861",
-                    tseClose: 65920,
-                    adrCloseJpy: 66480,
-                    diffPct: 0.0085,
-                },
-                {
-                    name: "ファナック",
-                    code: "6954",
-                    tseClose: 3842,
-                    adrCloseJpy: 3915,
-                    diffPct: 0.019,
-                },
-                {
-                    name: "リクルート",
-                    code: "6098",
-                    tseClose: 9421,
-                    adrCloseJpy: 9344,
-                    diffPct: -0.0082,
-                },
-                {
-                    name: "HOYA",
-                    code: "7741",
-                    tseClose: 19840,
-                    adrCloseJpy: 20110,
-                    diffPct: 0.0136,
-                },
-                {
-                    name: "ソフトバンクG",
-                    code: "9984",
-                    tseClose: 9842,
-                    adrCloseJpy: 9768,
-                    diffPct: -0.0075,
-                },
-                {
-                    name: "東京エレク",
-                    code: "8035",
-                    tseClose: 23540,
-                    adrCloseJpy: 24012,
-                    diffPct: 0.0201,
-                },
-            ];
-
-            const MOCK_FEATURES = [
-                { name: "NYダウ 前日変化率", contribution: 0.42 },
-                { name: "USD/JPY 変化幅", contribution: 0.35 },
-                { name: "日経先物(SGX) 騰落", contribution: 0.31 },
-                { name: "ADR乖離 中央値", contribution: 0.22 },
-                { name: "S&P500 前日変化率", contribution: 0.19 },
-                { name: "NASDAQ 前日変化率", contribution: -0.28 },
-                { name: "VIX 指数水準", contribution: -0.15 },
-                { name: "前日日経 騰落", contribution: -0.11 },
-                { name: "米10年債利回り変化", contribution: -0.08 },
-                { name: "原油(WTI) 前日変化率", contribution: 0.06 },
-            ];
-
-            const MOCK_HISTORY = [
-                { date: "2025-07-11", predicted: "up", actual: null },
-                { date: "2025-07-10", predicted: "up", actual: "up" },
-                { date: "2025-07-09", predicted: "down", actual: "down" },
-                { date: "2025-07-08", predicted: "up", actual: "down" },
-                { date: "2025-07-07", predicted: "up", actual: "up" },
-                { date: "2025-07-04", predicted: "down", actual: "down" },
-                { date: "2025-07-03", predicted: "up", actual: "up" },
-                { date: "2025-07-02", predicted: "down", actual: "up" },
-                { date: "2025-07-01", predicted: "up", actual: "up" },
-                { date: "2025-06-30", predicted: "down", actual: "down" },
-            ];
-
-            // ===== 5.1: init =====
+            // ===== エラーメッセージ生成ヘルパー =====
 
             /**
-             * ページロード時のエントリポイント
-             * - 米国マーケット / ADR乖離 / 特徴量 / 的中履歴 はモックデータで即描画
-             * - デイトレード注目銘柄: /api/getdaytradelist から取得
-             * - 日経225 方向性予想: /api/sample/predictions から取得
+             * fetch エラーをユーザ向けメッセージに変換する。
+             * 404 はデータ未生成扱いの専用文言、それ以外は汎用メッセージ。
+             */
+            function errorMessageFor(err) {
+                if (err && err.status === 404) {
+                    return "データがまだありません。";
+                }
+                if (!err || err.status === 503 || !err.status) {
+                    return "データの取得に失敗しました。しばらく後に再読み込みしてください。";
+                }
+                return "予期しないエラーが発生しました。";
+            }
+
+            // ===== init =====
+
+            /**
+             * ページロード時のエントリポイント。
+             * 全セクションの API を並列 fetch し、それぞれ個別に描画/エラー処理する。
              */
             async function init() {
-                // API取得セクションにローディングを表示
-                ["prediction", "n225-pred"].forEach(showLoading);
+                // 全セクションにローディング表示
+                [
+                    "prediction",
+                    "today-pred",
+                    "n225-pred",
+                    "us-market",
+                    "adr",
+                    "features",
+                    "history",
+                ].forEach(showLoading);
 
-                // ── バックエンド未実装セクション: モックデータで即時描画 ──
+                // ヘッダーは即時更新 (現在時刻ベース)
                 updateHeader(
                     new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString(),
                 );
-                renderUSMarketSection(MOCK_US_MARKET);
-                renderADRTable(MOCK_ADR);
-                renderFeatureChart(MOCK_FEATURES);
-                renderHistoryTable(MOCK_HISTORY);
 
-                // ── API取得セクション: 並列 fetch ──
-                const [dayTradeResult, n225PredResult] =
-                    await Promise.allSettled([
-                        fetchDayTradeList(),
-                        fetchN225Predictions(),
-                    ]);
+                // 全 API を並列 fetch
+                const [
+                    dayTradeResult,
+                    latestPredResult,
+                    n225PredResult,
+                    usMarketResult,
+                    adrResult,
+                    featuresResult,
+                    historyResult,
+                ] = await Promise.allSettled([
+                    fetchDayTradeList(),
+                    fetchLatestPrediction(),
+                    fetchN225Predictions(),
+                    fetchUSMarket(),
+                    fetchAdrDeviation(),
+                    fetchFeatureContributions(),
+                    fetchAccuracyHistory(),
+                ]);
 
-                // デイトレード注目銘柄
-                if (dayTradeResult.status === "fulfilled") {
-                    renderDayTradeList(dayTradeResult.value);
-                } else {
-                    const err = dayTradeResult.reason;
-                    showError(
-                        "prediction",
-                        err.status === 503 || !err.status
-                            ? "データの取得に失敗しました。しばらく後に再読み込みしてください。"
-                            : "予期しないエラーが発生しました。",
-                    );
-                }
+                // 各セクションを個別にハンドリング
+                const handle = (sectionId, result, renderer) => {
+                    if (result.status === "fulfilled") {
+                        try {
+                            renderer(result.value);
+                        } catch (e) {
+                            console.error(`render ${sectionId} failed`, e);
+                            showError(sectionId, "描画に失敗しました。");
+                        }
+                    } else {
+                        showError(sectionId, errorMessageFor(result.reason));
+                    }
+                };
 
-                // 日経225 方向性予想
-                if (n225PredResult.status === "fulfilled") {
-                    renderN225Predictions(n225PredResult.value);
-                } else {
-                    const err = n225PredResult.reason;
-                    showError(
-                        "n225-pred",
-                        err.status === 503 || !err.status
-                            ? "データの取得に失敗しました。しばらく後に再読み込みしてください。"
-                            : "予期しないエラーが発生しました。",
-                    );
-                }
+                handle("prediction", dayTradeResult, renderDayTradeList);
+                handle("today-pred", latestPredResult, renderLatestPrediction);
+                handle("n225-pred", n225PredResult, renderN225Predictions);
+                handle("us-market", usMarketResult, renderUSMarketSection);
+                handle("adr", adrResult, renderADRTable);
+                handle("features", featuresResult, renderFeatureChart);
+                handle("history", historyResult, renderHistoryTable);
             }
 
             // ページロード時に init() を実行
