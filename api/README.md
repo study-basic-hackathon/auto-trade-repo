@@ -42,6 +42,10 @@
 | `GET /api/metrics/accuracy?days=N` | **過去 N 日間の的中率・誤差** | 「直近の的中履歴」「精度サマリー」表示 |
 | `GET /api/adr/deviation` | **東証銘柄と ADR (米国上場) の乖離率** | 「主要企業 ADR 乖離」テーブル |
 | `GET /api/markets/us` | **NYダウ / NASDAQ / S&P500 / USD/JPY の前日終値** | 「米国マーケット (前日終値)」カード |
+| `GET /api/markets/polymarket` | **Polymarket 予想市場のセンチメント11件** | 「マーケット予想・センチメントカード」 |
+| `GET /api/markets/pts/overnight` | **PTSナイト 売買代金 TOP15 + TSE乖離** | 「翌朝寄付き要注目銘柄」カード |
+| `GET /api/markets/pts/premarket` | **PTSデイ 売買代金 TOP15 + GAP予想** | 「寄付きGAP候補」カード (朝8:50頃利用) |
+| `GET /api/markets/pts/volume_surge` | **PTS出来高 vs TSE30日平均 比率** | 「異常出来高検知」アラート |
 | `GET /api/getdaytradelist` | デイトレード注目銘柄 | 既存。注目銘柄テーブル |
 | `GET /api/health` | 死活確認 | 通常は使わない (運用監視用) |
 | `GET /api/sample/predictions` | サンプルデータ (旧形式) | 動作確認用。本番表示には使わないでください |
@@ -583,7 +587,283 @@ Object.entries(data.items).forEach(([key, m]) => {
 
 ---
 
-### 3.7 `GET /api/getdaytradelist` — デイトレード注目銘柄 (既存)
+### 3.7 PTS 系エンドポイント (Japannext PTS / Kabutan 集計)
+
+**3 つの PTS 系エンドポイント** で、TSE 通常市場の前後・休憩中に発生する値動きを取得できます。データソースは [Kabutan](https://kabutan.jp/) の PTS ランキングページ (デイ/ナイト/出来高) を 5 分 TTL でキャッシュ。
+
+> 💡 PTS (Proprietary Trading System) = 私設取引システム。Japannext PTS が主要。デイタイム 8:20-16:00、ナイトタイム 16:30-翌6:00。TSE 寄付前の値動きを観測できる。
+
+#### 3.7.1 `GET /api/markets/pts/overnight` — PTS ナイト + TSE 乖離
+
+**用途**: 引け後のニュース反応・板の動きを反映した「翌朝寄付き要注目銘柄 TOP15」を提供。
+
+| パラメータ | 型 | デフォルト | 説明 |
+|---|---|---|---|
+| `no_cache` | bool | false | true で強制再取得 |
+
+##### レスポンス例
+
+```json
+{
+  "fetched_at": "2026-05-06T07:00:00+09:00",
+  "session": "night",
+  "source": "kabutan",
+  "cached": false,
+  "cache_age_seconds": 0,
+  "count": 15,
+  "items": [
+    {
+      "rank": 1,
+      "code": "285A",
+      "name": "キオクシア",
+      "market": "東Ｐ",
+      "tse_close": 36410.0,
+      "pts_price": 37098.0,
+      "change_yen": 688.0,
+      "change_pct": 1.89,
+      "trading_value_million_jpy": 4622.0,
+      "kabutan_url": "https://kabutan.jp/stock/?code=285A"
+    }
+  ]
+}
+```
+
+##### フィールド
+
+| フィールド | 説明 |
+|---|---|
+| `code` | 銘柄コード (4-5 桁) |
+| `name` | 銘柄名 (日本語) |
+| `market` | 市場区分 (例: 東Ｐ=東証プライム / 東Ｓ=スタンダード / 東Ｇ=グロース / 東Ｅ=ETF) |
+| `tse_close` | 直近の TSE 通常取引終値 (円) |
+| `pts_price` | PTS 直近約定値 (円) |
+| `change_yen` / `change_pct` | TSE 終値からの差 (円 / %) — **PTS で +1.89% 動いたら、TSE 寄付も同方向に動く可能性が高い** |
+| `trading_value_million_jpy` | PTS ナイト 累計売買代金 (百万円) |
+| `kabutan_url` | 銘柄詳細ページ |
+
+#### 3.7.2 `GET /api/markets/pts/premarket` — PTS デイ + GAP 予想
+
+**用途**: 朝 8:20-9:00 の PTS デイタイム値動きから「TSE 寄付 GAP 予想」を作る。**朝 8:50 頃に呼び出すのが最適**。
+
+レスポンス構造は overnight と同じ (`session: "day"`)。`change_pct` がそのまま GAP 予想値。
+
+#### 3.7.3 `GET /api/markets/pts/volume_surge` — 異常出来高検知
+
+**用途**: PTS ナイト出来高 ÷ TSE 30 日平均出来高 (= **surge_ratio**) で「異常な流動性スパイク」を検出。突発材料・決算サプライズ等の早期察知。
+
+| パラメータ | 型 | デフォルト | 説明 |
+|---|---|---|---|
+| `no_cache` | bool | false | true で強制再取得 |
+| `min_surge_ratio` | float | 0.5 | この値以下の銘柄を除外 |
+
+##### レスポンス例
+
+```json
+{
+  "fetched_at": "2026-05-06T07:00:00+09:00",
+  "session": "night",
+  "source": "kabutan + yfinance",
+  "min_surge_ratio": 0.5,
+  "count": 3,
+  "items": [
+    {
+      "code": "7162",
+      "name": "アストマクス",
+      "market": "東Ｓ",
+      "tse_close": 800.0,
+      "pts_price": 1015.0,
+      "change_pct": 26.85,
+      "pts_volume": 373500,
+      "tse_avg_volume_30d": 145503,
+      "surge_ratio": 2.57,
+      "kabutan_url": "https://kabutan.jp/stock/?code=7162"
+    }
+  ]
+}
+```
+
+##### フィールド
+
+| フィールド | 説明 |
+|---|---|
+| `pts_volume` | PTS ナイト累計出来高 (株数) |
+| `tse_avg_volume_30d` | TSE 過去 30 営業日の平均出来高 (yfinance より) |
+| `surge_ratio` | `pts_volume / tse_avg_volume_30d`。**> 1.0 で要注意、> 2.0 で確実に何か材料あり** |
+
+##### 注意点
+
+- 初回呼び出しは yfinance に銘柄ごとに問合せるため **5〜15 秒** かかります。30 日分 EOD なので 2 回目以降キャッシュは速い。
+- TSE 30 日平均が取れない銘柄 (新規上場・上場廃止間際等) は items から除外されます。
+
+#### JavaScript 使用例 (3 種を組み合わせる)
+
+```javascript
+// 1. 翌朝寄付き要注目 (引け後)
+const ovrn = await (await fetch("/api/markets/pts/overnight")).json();
+
+// 2. 寄付前 GAP 候補 (朝 8:50)
+const pre = await (await fetch("/api/markets/pts/premarket")).json();
+
+// 3. 異常出来高 (突発材料検知、surge >= 2.0 で絞る)
+const surge = await (await fetch("/api/markets/pts/volume_surge?min_surge_ratio=2.0")).json();
+
+// 共通の描画関数
+const renderRow = (it) => {
+  const dir = (it.change_pct ?? 0) >= 0 ? "▲" : "▼";
+  const cls = (it.change_pct ?? 0) >= 0 ? "up" : "down";
+  return `<tr class="${cls}">
+    <td>${it.code}</td><td>${it.name}</td>
+    <td>${it.tse_close?.toLocaleString()}</td>
+    <td>${it.pts_price?.toLocaleString()}</td>
+    <td>${dir} ${Math.abs(it.change_pct ?? 0).toFixed(2)}%</td>
+    <td><a href="${it.kabutan_url}" target="_blank">詳細</a></td>
+  </tr>`;
+};
+```
+
+#### 共通の注意点
+
+- **Kabutan の Bot 対策**: 過剰な連続アクセスで一時的に `403` を返すことがあります。本実装は 5 分 TTL キャッシュ + 実ブラウザ風 User-Agent で対策済み。
+- **ToS**: 株探の利用規約上、個人/小規模ダッシュボード利用は通例 OK ですが、大量配信や商用は問い合わせ推奨。
+- **本番 ECS は NAT Gateway 未設置**のため、本番デプロイ時は外部 HTTPS 経路の準備が必要 (yfinance / Polymarket と同じ既知制約)。
+
+---
+
+### 3.8 `GET /api/markets/polymarket` — Polymarket 予想市場 (センチメント)
+
+予想市場プラットフォーム [Polymarket](https://polymarket.com/) から、日本株デイトレに有用な11マーケットの**現在の確率**をまとめて返します。Fed・日銀の次回金利決定や地政学リスクなど、価格データには現れない**フォワードルッキングなセンチメント指標**として使えます。
+
+> 💡 **自動ローリング設計**: マスタ (`api/data/polymarket_master.json`) の各マーケットはキーワード検索で動的に Polymarket 上の event を見つけます。「FOMC 6月」のような月固定ではなく **「次回 FOMC」** として常に最新会合に追従するので、月をまたいでもマスタの書き換えは原則不要です。
+
+#### クエリパラメータ
+
+| パラメータ | 型 | 必須 | デフォルト | 説明 |
+|---|---|---|---|---|
+| `no_cache` | 真偽 | 任意 | `false` | `true` で強制再取得 |
+
+#### キャッシュ仕様
+
+Polymarket Gamma API を 8 ページ分 (約 4,000 events) 走査するため初回は **約 7〜15 秒** かかります。レスポンスは **30 分間メモリにキャッシュ**されます。
+
+#### レスポンス例 (一部抜粋)
+
+```json
+{
+  "fetched_at": "2026-05-05T22:00:00+09:00",
+  "cached": false,
+  "cache_age_seconds": 0,
+  "source": "polymarket-gamma-api",
+  "count": 11,
+  "items": [
+    {
+      "rank": 1,
+      "slug": "fed-decision-in-june-825",
+      "label": "次回 FOMC 据え置き確率",
+      "category": "金融政策",
+      "category_key": "monetary",
+      "main_outcome": {
+        "name": "No change",
+        "name_jp": "据え置き",
+        "probability": 0.955
+      },
+      "all_outcomes": [
+        { "name": "No change",        "probability": 0.955 },
+        { "name": "25 bps decrease",  "probability": 0.025 },
+        { "name": "25 bps increase",  "probability": 0.009 },
+        { "name": "50+ bps decrease", "probability": 0.004 },
+        { "name": "50+ bps increase", "probability": 0.004 }
+      ],
+      "volume_usd": 18077785.0,
+      "liquidity_usd": 250000.0,
+      "resolution_date": "2026-06-17",
+      "polymarket_url": "https://polymarket.com/event/fed-decision-in-june-825",
+      "description_jp": "次回 FOMC 会合の政策金利決定。No change = 据え置き確率。月またぎで自動的に次の会合に追従する。",
+      "impact_on_n225": "据え置き確率上昇 → ハト派観測弱まる → USD/JPY 上昇 → N225 上昇要因",
+      "available": true
+    }
+    /* ... 残り 10 件 ... */
+  ]
+}
+```
+
+#### フィールド意味
+
+**トップレベル**
+
+| フィールド | 説明 |
+|---|---|
+| `fetched_at` | 取得日時 (JST) |
+| `cached` / `cache_age_seconds` | キャッシュ状態 |
+| `source` | 常に `polymarket-gamma-api` |
+| `count` | 返却件数 (常に 11 想定) |
+
+**`items[]` 各マーケット**
+
+| フィールド | 説明 |
+|---|---|
+| `rank` | 重要度ランク (1〜11、フロントの並び順保持に使う) |
+| `slug` | Polymarket 上の一意 ID |
+| `label` | **日本語表示名** (カードのタイトル) |
+| `category` / `category_key` | カテゴリ表示名と英字キー (UI のフィルタ・色分け用) |
+| `main_outcome` | **画面に大きく出す確率値** |
+| `main_outcome.name` | Polymarket 上の outcome 名 (英語) |
+| `main_outcome.name_jp` | 日本語表示名 |
+| `main_outcome.probability` | **現在の確率 (0〜1)** — UI では `× 100` で % 表示 |
+| `all_outcomes` | 全 outcome の確率 (詳細パネル用) |
+| `volume_usd` | 累計取引高 USD (信頼性の目安) |
+| `liquidity_usd` | 板の厚み |
+| `resolution_date` | 決着日 (YYYY-MM-DD) |
+| `polymarket_url` | 「詳細を見る」リンク用 |
+| `description_jp` | ツールチップ用 日本語解説 |
+| `impact_on_n225` | **「これが動いたら日本株にどう効くか」のヒント** |
+| `available` | データ取得成功か |
+
+**カテゴリ一覧**
+
+| `category_key` | `category` (表示名) | 該当マーケット |
+|---|---|---|
+| `monetary` | 金融政策 | FOMC, Fed利下げ回数, BOJ, RBA |
+| `fx` | 為替 | USD/JPY |
+| `equity_proxy` | 米株プロキシ | NVIDIA時価総額1位 |
+| `geopolitics` | 地政学 | 中台 |
+| `us_macro` | 米国経済 | 米国リセッション |
+| `japan_macro` | 日本経済 | 日本リセッション |
+| `risk_appetite` | リスク選好 | Bitcoin |
+
+#### JavaScript 使用例
+
+```javascript
+const res = await fetch("/api/markets/polymarket");
+const data = await res.json();
+
+// シンプルカード一覧 (rank 順、絶対値の大きい確率を強調)
+data.items.forEach(m => {
+  if (!m.available) return;
+  const card = document.createElement("div");
+  card.className = `polymarket-card category-${m.category_key}`;
+  const prob = m.main_outcome.probability;
+  const probPct = (prob * 100).toFixed(1);
+  card.innerHTML = `
+    <div class="cat">${m.category}</div>
+    <h3>${m.label}</h3>
+    <div class="prob">${probPct}%</div>
+    <div class="outcome">${m.main_outcome.name_jp}</div>
+    <a href="${m.polymarket_url}" target="_blank" rel="noopener">詳細 →</a>
+  `;
+  card.title = m.description_jp + "\n\n[N225への影響]\n" + m.impact_on_n225;
+  document.getElementById("polymarket-section").appendChild(card);
+});
+```
+
+#### 注意点
+
+- **初回呼び出しは約 7〜15 秒**かかります (Polymarket Gamma API を 4000 events 走査するため)。フロント側でローディング表示を出してください。同セッション 30 分以内の 2 回目以降は瞬時。
+- 一時的に Polymarket から該当 event が見つからない場合 `available: false` で他フィールドが `null` になります。フロント側でケアしてください。
+- マスタ (`api/data/polymarket_master.json`) のキーワード検索方式により、月またぎでも次回会合等を自動追従します。**手動更新が必要なのは年単位のマーケット (年内リセッション等) のみ**。
+
+---
+
+### 3.9 `GET /api/getdaytradelist` — デイトレード注目銘柄 (既存)
 
 Yahoo!ファイナンスのランキングを集計して、売買代金 × 出来高増加率の両条件を満たす銘柄を返します。
 
