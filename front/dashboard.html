@@ -383,78 +383,6 @@
                 text-align: right;
             }
 
-            /* ===== N225 Core Summary ===== */
-            .n225-core-grid {
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 16px;
-                margin-bottom: 16px;
-            }
-
-            .n225-core-panel {
-                background: var(--color-bg);
-                border: 1px solid var(--color-border);
-                border-radius: 6px;
-                padding: 16px;
-            }
-
-            .n225-core-panel__title {
-                font-size: 12px;
-                color: var(--color-text-muted);
-                margin-bottom: 10px;
-                font-weight: bold;
-                text-transform: uppercase;
-                letter-spacing: 0.03em;
-            }
-
-            .n225-core-stat {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 6px 0;
-                border-bottom: 1px solid var(--color-border);
-            }
-
-            .n225-core-stat:last-child {
-                border-bottom: none;
-            }
-
-            .n225-core-stat__label {
-                font-size: 13px;
-                color: var(--color-text);
-            }
-
-            .n225-core-stat__value {
-                font-size: 14px;
-                font-weight: bold;
-                font-variant-numeric: tabular-nums;
-            }
-
-            .n225-core-summary-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 12px;
-                padding-bottom: 8px;
-                border-bottom: 1px solid var(--color-border);
-            }
-
-            .n225-core-summary-header__title {
-                font-size: 14px;
-                font-weight: bold;
-            }
-
-            .n225-core-summary-header__meta {
-                font-size: 12px;
-                color: var(--color-text-muted);
-            }
-
-            @media (max-width: 600px) {
-                .n225-core-grid {
-                    grid-template-columns: 1fr;
-                }
-            }
-
             /* ===== History_Table ===== */
             .history-table {
                 width: 100%;
@@ -610,33 +538,6 @@
                 </div>
             </section>
 
-            <!-- ②-b TOPIX Core30 AI予想サマリー -->
-            <section id="n225-core" aria-labelledby="n225-core-title">
-                <h2 id="n225-core-title">TOPIX Core30 AI予想サマリー</h2>
-
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="TOPIX Core30予想データを読み込み中"
-                >
-                    読み込み中…
-                </div>
-
-                <!-- エラーメッセージ -->
-                <div
-                    class="error-message"
-                    role="alert"
-                    aria-live="assertive"
-                    hidden
-                ></div>
-
-                <!-- データ表示エリア -->
-                <div id="n225-core-content" hidden>
-                    <!-- renderTopixCore30Summary() によって描画される -->
-                </div>
-            </section>
-
             <!-- ③ 米国マーケット（US_Market_Section） -->
             <section id="us-market" aria-labelledby="us-title">
                 <h2 id="us-title">米国マーケット（前日終値）</h2>
@@ -748,23 +649,6 @@
              */
             async function fetchN225Predictions() {
                 const url = "/api/sample/predictions";
-                const response = await fetch(url);
-                if (!response.ok) {
-                    const err = new Error(`HTTP ${response.status}`);
-                    err.status = response.status;
-                    throw err;
-                }
-                return response.json();
-            }
-
-            // ===== 5.1.3: fetchTopixCore30Summary =====
-
-            /**
-             * /api/topixcore30/summary を fetch し JSON を返す
-             * @returns {Promise<Object>} TOPIX Core30 銘柄の集計結果
-             */
-            async function fetchTopixCore30Summary() {
-                const url = "/api/topixcore30/summary";
                 const response = await fetch(url);
                 if (!response.ok) {
                     const err = new Error(`HTTP ${response.status}`);
@@ -1221,197 +1105,6 @@
                 showContent("n225-pred");
             }
 
-            // ===== 5.9: renderTopixCore30Summary =====
-
-            function renderTopixCore30Summary(data) {
-                const content = document.getElementById("n225-core-content");
-                if (!content) return;
-
-                const {
-                    as_of,
-                    universe_size_target,
-                    universe_size_matched,
-                    coverage_pct,
-                    missing_symbols,
-                    trend,
-                    signal,
-                    pct_sign,
-                    up_down_ratio,
-                    weighted_avg_change_pct,
-                    top5_predicted_up,
-                    top5_predicted_down,
-                } = data;
-
-                // 日時フォーマット
-                let asOfStr = "—";
-                if (as_of) {
-                    const dt = new Date(as_of);
-                    asOfStr = dt.toLocaleString("ja-JP", {
-                        timeZone: "Asia/Tokyo",
-                        month: "2-digit",
-                        day: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                    });
-                }
-
-                // トレンド集計
-                const bullish = trend.bullish || 0;
-                const bearish = trend.bearish || 0;
-                const neutralTrend = trend.neutral || 0;
-
-                // シグナル集計
-                const strongBuy = signal.strong_buy || 0;
-                const buy = signal.buy || 0;
-                const neutralSig = signal.neutral || 0;
-                const sell = signal.sell || 0;
-                const strongSell = signal.strong_sell || 0;
-
-                // 騰落予想レシオ
-                const ratioStr = isFinite(up_down_ratio)
-                    ? up_down_ratio.toFixed(2)
-                    : "∞";
-
-                // 加重予想変動率の色分け
-                const weightedClass = weighted_avg_change_pct >= 0 ? "pos" : "neg";
-                const weightedSymbol = weighted_avg_change_pct >= 0 ? "+" : "";
-
-                // カバー率の色（80%未満は注意色）
-                const coverageClass = coverage_pct >= 80 ? "" : "style=\"color:#b07000\"";
-
-                // TOP5 / BOTTOM5 行を生成
-                const signalLabel = {
-                    strong_buy: "💎 SB",
-                    buy: "📈 B",
-                    neutral: "─ N",
-                    sell: "注 S",
-                    strong_sell: "⚠️ SS",
-                };
-
-                const renderRankRows = (list) =>
-                    list
-                        .map((r) => {
-                            const isUp = r.change_percent >= 0;
-                            const cls = isUp ? "pos" : "neg";
-                            const sym = r.overall_signal;
-                            return `
-              <tr>
-                <td>${r.symbol.replace(".T", "")}</td>
-                <td>${r.name}</td>
-                <td class="num ${cls}">${isUp ? "+" : ""}${r.change_percent.toFixed(2)}%</td>
-                <td>${signalLabel[sym] || sym}</td>
-              </tr>`;
-                        })
-                        .join("");
-
-                content.innerHTML = `
-      <div class="n225-core-summary-header">
-        <div class="n225-core-summary-header__title">
-          TOPIX Core30（2025年10月31日適用版）
-        </div>
-        <div class="n225-core-summary-header__meta">
-          ${asOfStr} 生成 /
-          <span ${coverageClass}>${universe_size_matched}/${universe_size_target}銘柄 (${coverage_pct}%)</span>
-        </div>
-      </div>
-
-      <div class="n225-core-grid">
-        <!-- 左パネル: トレンド集計 -->
-        <div class="n225-core-panel">
-          <div class="n225-core-panel__title">📊 AIトレンド判定</div>
-          <div class="n225-core-stat">
-            <span class="n225-core-stat__label">📈 上昇予想 (bullish)</span>
-            <span class="n225-core-stat__value pos num">${bullish}</span>
-          </div>
-          <div class="n225-core-stat">
-            <span class="n225-core-stat__label">➖ 中立 (neutral)</span>
-            <span class="n225-core-stat__value num">${neutralTrend}</span>
-          </div>
-          <div class="n225-core-stat">
-            <span class="n225-core-stat__label">📉 下落予想 (bearish)</span>
-            <span class="n225-core-stat__value neg num">${bearish}</span>
-          </div>
-          <div class="n225-core-stat">
-            <span class="n225-core-stat__label">騰落予想レシオ</span>
-            <span class="n225-core-stat__value num">${ratioStr}</span>
-          </div>
-          <div class="n225-core-stat">
-            <span class="n225-core-stat__label">加重予想変動率</span>
-            <span class="n225-core-stat__value ${weightedClass} num">${weightedSymbol}${weighted_avg_change_pct.toFixed(2)}%</span>
-          </div>
-        </div>
-
-        <!-- 右パネル: シグナル内訳 -->
-        <div class="n225-core-panel">
-          <div class="n225-core-panel__title">🎯 シグナル内訳</div>
-          <div class="n225-core-stat">
-            <span class="n225-core-stat__label">💎 strong_buy</span>
-            <span class="n225-core-stat__value pos num">${strongBuy}</span>
-          </div>
-          <div class="n225-core-stat">
-            <span class="n225-core-stat__label">📈 buy</span>
-            <span class="n225-core-stat__value pos num">${buy}</span>
-          </div>
-          <div class="n225-core-stat">
-            <span class="n225-core-stat__label">─ neutral</span>
-            <span class="n225-core-stat__value num">${neutralSig}</span>
-          </div>
-          <div class="n225-core-stat">
-            <span class="n225-core-stat__label">注 sell</span>
-            <span class="n225-core-stat__value neg num">${sell}</span>
-          </div>
-          <div class="n225-core-stat">
-            <span class="n225-core-stat__label">⚠️ strong_sell</span>
-            <span class="n225-core-stat__value neg num">${strongSell}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 予想上昇率 / 下落率 ランキング -->
-      <div class="n225-core-grid" style="margin-top: 12px;">
-        <div class="n225-core-panel">
-          <div class="n225-core-panel__title">📈 予想上昇率 TOP5</div>
-          <table class="daytrade-table" style="font-size:12px;">
-            <thead>
-              <tr>
-                <th scope="col">コード</th>
-                <th scope="col" style="text-align:left">銘柄</th>
-                <th scope="col">予想変動率</th>
-                <th scope="col">シグナル</th>
-              </tr>
-            </thead>
-            <tbody>${renderRankRows(top5_predicted_up)}</tbody>
-          </table>
-        </div>
-        <div class="n225-core-panel">
-          <div class="n225-core-panel__title">📉 予想下落率 TOP5</div>
-          <table class="daytrade-table" style="font-size:12px;">
-            <thead>
-              <tr>
-                <th scope="col">コード</th>
-                <th scope="col" style="text-align:left">銘柄</th>
-                <th scope="col">予想変動率</th>
-                <th scope="col">シグナル</th>
-              </tr>
-            </thead>
-            <tbody>${renderRankRows(top5_predicted_down)}</tbody>
-          </table>
-        </div>
-      </div>
-
-      ${
-          missing_symbols && missing_symbols.length > 0
-              ? `<p class="hint" style="margin-top:10px;">⚠️ APIカバー外: ${missing_symbols.map((s) => s.replace(".T", "")).join(", ")}（${missing_symbols.length}銘柄）</p>`
-              : ""
-      }
-      <p class="hint" style="margin-top: 6px;">
-        ※ データ提供: <a href="https://stock-kabu3.com" target="_blank" rel="noopener">stock-kabu3.com</a> /
-        AIによる予測です。投資判断の参考情報としてご利用ください。
-      </p>
-    `;
-                showContent("n225-core");
-            }
-
             // ===== MOCK DATA（バックエンド未実装セクション用） =====
 
             const MOCK_US_MARKET = {
@@ -1527,11 +1220,10 @@
              * - 米国マーケット / ADR乖離 / 特徴量 / 的中履歴 はモックデータで即描画
              * - デイトレード注目銘柄: /api/getdaytradelist から取得
              * - 日経225 方向性予想: /api/sample/predictions から取得
-             * - TOPIX Core30 AI予想: /api/topixcore30/summary から取得
              */
             async function init() {
                 // API取得セクションにローディングを表示
-                ["prediction", "n225-pred", "n225-core"].forEach(showLoading);
+                ["prediction", "n225-pred"].forEach(showLoading);
 
                 // ── バックエンド未実装セクション: モックデータで即時描画 ──
                 updateHeader(
@@ -1543,11 +1235,10 @@
                 renderHistoryTable(MOCK_HISTORY);
 
                 // ── API取得セクション: 並列 fetch ──
-                const [dayTradeResult, n225PredResult, topixCore30Result] =
+                const [dayTradeResult, n225PredResult] =
                     await Promise.allSettled([
                         fetchDayTradeList(),
                         fetchN225Predictions(),
-                        fetchTopixCore30Summary(),
                     ]);
 
                 // デイトレード注目銘柄
@@ -1570,19 +1261,6 @@
                     const err = n225PredResult.reason;
                     showError(
                         "n225-pred",
-                        err.status === 503 || !err.status
-                            ? "データの取得に失敗しました。しばらく後に再読み込みしてください。"
-                            : "予期しないエラーが発生しました。",
-                    );
-                }
-
-                // TOPIX Core30 AI予想
-                if (topixCore30Result.status === "fulfilled") {
-                    renderTopixCore30Summary(topixCore30Result.value);
-                } else {
-                    const err = topixCore30Result.reason;
-                    showError(
-                        "n225-core",
                         err.status === 503 || !err.status
                             ? "データの取得に失敗しました。しばらく後に再読み込みしてください。"
                             : "予期しないエラーが発生しました。",
