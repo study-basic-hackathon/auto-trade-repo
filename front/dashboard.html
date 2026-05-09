@@ -1,937 +1,1074 @@
 <!doctype html>
 <html lang="ja">
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>日経寄り付き予想ダッシュボード</title>
-        <style>
-            /* ===== リセット・基本 ===== */
-            *,
-            *::before,
-            *::after {
-                box-sizing: border-box;
-                margin: 0;
-                padding: 0;
-            }
 
-            /* hidden 属性が class の display ルールに上書きされないよう修正 */
-            [hidden] {
-                display: none !important;
-            }
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>日経寄り付き予想ダッシュボード</title>
+    <style>
+        /* ===== リセット・基本 ===== */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-            :root {
-                --color-up: #e03030; /* 日本式: 上昇=赤 */
-                --color-down: #1a6fc4; /* 日本式: 下落=青 */
-                --color-bg: #f5f5f5;
-                --color-surface: #ffffff;
-                --color-border: #ddd;
-                --color-text: #222;
-                --color-text-muted: #666;
-                --radius: 8px;
-                --shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
-            }
+        /* hidden 属性が class の display ルールに上書きされないよう修正 */
+        [hidden] {
+            display: none !important;
+        }
 
-            body {
-                font-family:
-                    "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Meiryo",
-                    sans-serif;
-                background: var(--color-bg);
-                color: var(--color-text);
-                line-height: 1.6;
-                font-size: 14px;
-            }
+        :root {
+            --color-up: #e03030;
+            /* 日本式: 上昇=赤 */
+            --color-down: #1a6fc4;
+            /* 日本式: 下落=青 */
+            --color-bg: #f5f5f5;
+            --color-surface: #ffffff;
+            --color-border: #ddd;
+            --color-text: #222;
+            --color-text-muted: #666;
+            --radius: 8px;
+            --shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+        }
 
-            /* ===== ユーティリティ ===== */
+        body {
+            font-family:
+                "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Meiryo",
+                sans-serif;
+            background: var(--color-bg);
+            color: var(--color-text);
+            line-height: 1.6;
+            font-size: 14px;
+        }
 
-            /* スクリーンリーダー専用（視覚的に非表示） */
-            .visually-hidden {
-                position: absolute;
-                width: 1px;
-                height: 1px;
-                padding: 0;
-                margin: -1px;
-                overflow: hidden;
-                clip: rect(0, 0, 0, 0);
-                white-space: nowrap;
-                border: 0;
-            }
+        /* ===== ユーティリティ ===== */
 
-            /* 数値を等幅フォントで表示 */
-            .num {
-                font-variant-numeric: tabular-nums;
-                font-feature-settings: "tnum";
-            }
+        /* スクリーンリーダー専用（視覚的に非表示） */
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
 
-            /* 上昇=赤、下落=青 */
-            .pos {
-                color: var(--color-up);
-            }
-            .neg {
-                color: var(--color-down);
-            }
+        /* 数値を等幅フォントで表示 */
+        .num {
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum";
+        }
 
-            /* ===== ヘッダー ===== */
-            .app-header {
-                background: var(--color-surface);
-                border-bottom: 1px solid var(--color-border);
-                padding: 12px 20px;
-                display: flex;
-                align-items: center;
-                gap: 16px;
-                flex-wrap: wrap;
-            }
+        /* 上昇=赤、下落=青 */
+        .pos {
+            color: var(--color-up);
+        }
 
-            .app-header h1 {
-                font-size: 16px;
-                font-weight: bold;
-                color: var(--color-text);
-            }
+        .neg {
+            color: var(--color-down);
+        }
 
-            .header-meta {
-                display: flex;
-                gap: 16px;
-                flex-wrap: wrap;
-                font-size: 13px;
-                color: var(--color-text-muted);
-            }
+        /* ===== ヘッダー ===== */
+        .app-header {
+            background: var(--color-surface);
+            border-bottom: 1px solid var(--color-border);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
 
-            .header-meta span {
-                font-variant-numeric: tabular-nums;
-            }
+        .app-header h1 {
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--color-text);
+        }
 
-            /* ===== メインレイアウト ===== */
-            main {
-                max-width: 1100px;
-                margin: 0 auto;
-                padding: 20px 16px;
-                display: flex;
-                flex-direction: column;
-                gap: 20px;
-            }
+        .header-meta {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            font-size: 13px;
+            color: var(--color-text-muted);
+        }
 
-            /* ===== セクション共通 ===== */
-            section {
-                background: var(--color-surface);
-                border-radius: var(--radius);
-                box-shadow: var(--shadow);
-                padding: 20px;
-            }
+        .header-meta span {
+            font-variant-numeric: tabular-nums;
+        }
 
-            section h2 {
-                font-size: 15px;
-                font-weight: bold;
-                margin-bottom: 14px;
-                color: var(--color-text);
-                border-left: 3px solid var(--color-border);
-                padding-left: 8px;
-            }
+        /* ===== メインレイアウト ===== */
+        main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
 
-            /* ===== ローディング ===== */
-            .loading {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                color: var(--color-text-muted);
-                padding: 20px 0;
-                font-size: 14px;
-            }
+        /* ===== セクション共通 ===== */
+        section {
+            background: var(--color-surface);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 20px;
+        }
 
-            .loading::before {
-                content: "";
-                display: inline-block;
-                width: 18px;
-                height: 18px;
-                border: 2px solid var(--color-border);
-                border-top-color: #888;
-                border-radius: 50%;
-                animation: spin 0.8s linear infinite;
-                flex-shrink: 0;
-            }
+        section h2 {
+            font-size: 15px;
+            font-weight: bold;
+            margin-bottom: 14px;
+            color: var(--color-text);
+            border-left: 3px solid var(--color-border);
+            padding-left: 8px;
+        }
 
-            @keyframes spin {
-                to {
-                    transform: rotate(360deg);
-                }
-            }
+        /* ===== ローディング ===== */
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--color-text-muted);
+            padding: 20px 0;
+            font-size: 14px;
+        }
 
-            /* ===== エラーメッセージ ===== */
-            .error-message {
-                color: #b00020;
-                background: #fff0f0;
-                border: 1px solid #f5c6cb;
-                border-radius: 4px;
-                padding: 12px 16px;
-                font-size: 14px;
-            }
+        .loading::before {
+            content: "";
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2px solid var(--color-border);
+            border-top-color: #888;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            flex-shrink: 0;
+        }
 
-            /* ===== DayTrade_Section ===== */
-            .daytrade-table {
-                width: 100%;
-                border-collapse: collapse;
-                font-size: 13px;
-                font-variant-numeric: tabular-nums;
-                white-space: nowrap;
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
             }
+        }
 
-            .daytrade-table th,
-            .daytrade-table td {
-                padding: 8px 12px;
-                border-bottom: 1px solid var(--color-border);
-                text-align: right;
-            }
+        /* ===== エラーメッセージ ===== */
+        .error-message {
+            color: #b00020;
+            background: #fff0f0;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            padding: 12px 16px;
+            font-size: 14px;
+        }
 
-            .daytrade-table th:nth-child(2),
-            .daytrade-table td:nth-child(2),
-            .daytrade-table th:nth-child(3),
-            .daytrade-table td:nth-child(3),
-            .daytrade-table th:nth-child(4),
-            .daytrade-table td:nth-child(4) {
-                text-align: left;
-            }
+        /* ===== DayTrade_Section ===== */
+        .daytrade-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
 
-            .daytrade-table td:nth-child(3) {
-                white-space: normal;
-                min-width: 130px;
-            }
+        .daytrade-table th,
+        .daytrade-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--color-border);
+            text-align: right;
+        }
 
-            .daytrade-table th {
-                background: #f9f9f9;
-                font-weight: bold;
-                color: var(--color-text-muted);
-                font-size: 12px;
-                text-transform: uppercase;
-                letter-spacing: 0.03em;
-            }
+        .daytrade-table th:nth-child(2),
+        .daytrade-table td:nth-child(2),
+        .daytrade-table th:nth-child(3),
+        .daytrade-table td:nth-child(3),
+        .daytrade-table th:nth-child(4),
+        .daytrade-table td:nth-child(4) {
+            text-align: left;
+        }
 
-            .daytrade-table tbody tr:hover {
-                background: #fafafa;
-            }
+        .daytrade-table td:nth-child(3) {
+            white-space: normal;
+            min-width: 130px;
+        }
 
-            /* ===== US_Market_Section ===== */
-            .market-cards {
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 12px;
-            }
+        .daytrade-table th {
+            background: #f9f9f9;
+            font-weight: bold;
+            color: var(--color-text-muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
 
-            .market-card {
-                background: var(--color-bg);
-                border: 1px solid var(--color-border);
-                border-radius: 6px;
-                padding: 14px 12px;
-            }
+        .daytrade-table tbody tr:hover {
+            background: #fafafa;
+        }
 
-            .market-card__name {
-                font-size: 12px;
-                color: var(--color-text-muted);
-                margin-bottom: 4px;
-            }
+        /* ===== US_Market_Section ===== */
+        .market-cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
 
-            .market-card__close {
-                font-size: 20px;
-                font-weight: bold;
-                font-variant-numeric: tabular-nums;
-                margin-bottom: 4px;
-            }
+        .market-card {
+            background: var(--color-bg);
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            padding: 14px 12px;
+        }
 
-            .market-card__change {
-                font-size: 13px;
-                font-variant-numeric: tabular-nums;
-            }
+        .market-card__name {
+            font-size: 12px;
+            color: var(--color-text-muted);
+            margin-bottom: 4px;
+        }
 
-            .card__change--up {
-                color: var(--color-up);
-            }
+        .market-card__close {
+            font-size: 20px;
+            font-weight: bold;
+            font-variant-numeric: tabular-nums;
+            margin-bottom: 4px;
+        }
 
-            .card__change--down {
-                color: var(--color-down);
-            }
+        .market-card__change {
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+        }
 
-            /* ===== ADR_Table ===== */
-            .hint {
-                font-size: 12px;
-                color: var(--color-text-muted);
-                margin-bottom: 12px;
-            }
+        .card__change--up {
+            color: var(--color-up);
+        }
 
-            /* 横スクロールラッパー */
-            .table-wrap {
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-            }
+        .card__change--down {
+            color: var(--color-down);
+        }
 
-            .adr-table {
-                width: 100%;
-                border-collapse: collapse;
-                font-size: 13px;
-                font-variant-numeric: tabular-nums;
-                white-space: nowrap;
-            }
+        /* ===== ADR_Table ===== */
+        .hint {
+            font-size: 12px;
+            color: var(--color-text-muted);
+            margin-bottom: 12px;
+        }
 
-            .adr-table th,
-            .adr-table td {
-                padding: 8px 12px;
-                border-bottom: 1px solid var(--color-border);
-                text-align: right;
-            }
+        /* 横スクロールラッパー */
+        .table-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
 
-            .adr-table th:first-child,
-            .adr-table td:first-child {
-                text-align: left;
-                position: sticky;
-                left: 0;
-                background: var(--color-surface);
-                z-index: 1;
-                min-width: 100px;
-            }
+        .adr-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
 
-            /* sticky カラムの影（スクロール時の視覚的区切り） */
-            .adr-table th:first-child::after,
-            .adr-table td:first-child::after {
-                content: "";
-                position: absolute;
-                top: 0;
-                right: -4px;
-                bottom: 0;
-                width: 4px;
-                background: linear-gradient(
-                    to right,
+        .adr-table th,
+        .adr-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--color-border);
+            text-align: right;
+        }
+
+        .adr-table th:first-child,
+        .adr-table td:first-child {
+            text-align: left;
+            position: sticky;
+            left: 0;
+            background: var(--color-surface);
+            z-index: 1;
+            min-width: 100px;
+        }
+
+        /* sticky カラムの影（スクロール時の視覚的区切り） */
+        .adr-table th:first-child::after,
+        .adr-table td:first-child::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            right: -4px;
+            bottom: 0;
+            width: 4px;
+            background: linear-gradient(to right,
                     rgba(0, 0, 0, 0.06),
-                    transparent
-                );
-                pointer-events: none;
-            }
+                    transparent);
+            pointer-events: none;
+        }
 
-            .adr-table th {
-                background: #f9f9f9;
-                font-weight: bold;
-                color: var(--color-text-muted);
-                font-size: 12px;
-                text-transform: uppercase;
-                letter-spacing: 0.03em;
-            }
+        .adr-table th {
+            background: #f9f9f9;
+            font-weight: bold;
+            color: var(--color-text-muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
 
-            /* ソート可能なカラムヘッダー */
-            .adr-table th[data-sort-key] {
-                cursor: pointer;
-                user-select: none;
-            }
+        /* ソート可能なカラムヘッダー */
+        .adr-table th[data-sort-key] {
+            cursor: pointer;
+            user-select: none;
+        }
 
-            .adr-table th[data-sort-key]:hover {
-                background: #efefef;
-                color: var(--color-text);
-            }
+        .adr-table th[data-sort-key]:hover {
+            background: #efefef;
+            color: var(--color-text);
+        }
 
-            .adr-table th[aria-sort="ascending"]::after,
-            .adr-table th[aria-sort="descending"]::after {
-                /* ソートインジケータは JS で付与 */
-            }
+        .adr-table th[aria-sort="ascending"]::after,
+        .adr-table th[aria-sort="descending"]::after {
+            /* ソートインジケータは JS で付与 */
+        }
 
-            .adr-table tbody tr:hover {
-                background: #fafafa;
-            }
+        .adr-table tbody tr:hover {
+            background: #fafafa;
+        }
 
-            /* ===== Feature_Chart ===== */
-            .feature-bars {
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-            }
+        /* ===== Feature_Chart ===== */
+        .feature-bars {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
 
-            .feature-row {
-                display: flex;
-                align-items: center;
-                gap: 10px;
+        .feature-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .feature-name {
+            width: 180px;
+            flex-shrink: 0;
+            font-size: 13px;
+            color: var(--color-text);
+            text-align: right;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .feature-bar-track {
+            flex: 1;
+            height: 20px;
+            background: #f0f0f0;
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* バー本体: width は JS で style="--w: 60%" のように設定 */
+        .f-bar {
+            display: inline-block;
+            height: 1em;
+            background: currentColor;
+            width: var(--w, 0%);
+            border-radius: 2px;
+            vertical-align: middle;
+        }
+
+        .feature-value {
+            width: 60px;
+            flex-shrink: 0;
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+            color: var(--color-text-muted);
+            text-align: right;
+        }
+
+        /* ===== History_Table ===== */
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .history-table th,
+        .history-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--color-border);
+            text-align: center;
+        }
+
+        .history-table th:first-child,
+        .history-table td:first-child {
+            text-align: left;
+        }
+
+        .history-table th {
+            background: #f9f9f9;
+            font-weight: bold;
+            color: var(--color-text-muted);
+            font-size: 12px;
+        }
+
+        .history-table tbody tr:hover {
+            background: #fafafa;
+        }
+
+        .hit {
+            color: #2a7a2a;
+            font-weight: bold;
+        }
+
+        .miss {
+            color: #999;
+        }
+
+        .pending {
+            color: var(--color-text-muted);
+            font-style: italic;
+        }
+
+        /* ===== フッター ===== */
+        .app-footer {
+            text-align: center;
+            padding: 20px 16px;
+            font-size: 12px;
+            color: var(--color-text-muted);
+            border-top: 1px solid var(--color-border);
+            margin-top: 8px;
+        }
+
+        /* ===== Today_Prediction_Card ===== */
+        .today-pred-card {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 24px;
+            padding: 8px 4px;
+        }
+
+        .today-pred-direction {
+            font-size: 56px;
+            font-weight: bold;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .today-pred-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 14px;
+        }
+
+        .today-pred-meta .label {
+            color: var(--color-text-muted);
+            font-size: 12px;
+            margin-right: 6px;
+        }
+
+        .today-pred-meta .value {
+            font-variant-numeric: tabular-nums;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        /* ===== PTS_Tables ===== */
+        .pts-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .pts-table th,
+        .pts-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--color-border);
+            text-align: right;
+        }
+
+        .pts-table th:nth-child(2),
+        .pts-table td:nth-child(2),
+        .pts-table th:nth-child(3),
+        .pts-table td:nth-child(3),
+        .pts-table th:nth-child(4),
+        .pts-table td:nth-child(4) {
+            text-align: left;
+        }
+
+        .pts-table th {
+            background: #f9f9f9;
+            font-weight: bold;
+            color: var(--color-text-muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .pts-table tbody tr:hover {
+            background: #fafafa;
+        }
+
+        .pts-table a {
+            color: var(--color-text);
+            text-decoration: none;
+        }
+
+        .pts-table a:hover {
+            text-decoration: underline;
+        }
+
+        /* ===== Polymarket_Cards ===== */
+        .polymarket-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 12px;
+        }
+
+        .polymarket-card {
+            background: var(--color-bg);
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .polymarket-card__category {
+            font-size: 11px;
+            color: var(--color-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .polymarket-card__label {
+            font-size: 13px;
+            font-weight: bold;
+            color: var(--color-text);
+        }
+
+        .polymarket-card__prob {
+            font-size: 26px;
+            font-weight: bold;
+            font-variant-numeric: tabular-nums;
+            color: var(--color-text);
+        }
+
+        .polymarket-card__outcome {
+            font-size: 12px;
+            color: var(--color-text-muted);
+        }
+
+        .polymarket-card__desc {
+            font-size: 12px;
+            color: var(--color-text-muted);
+            line-height: 1.4;
+        }
+
+        .polymarket-card__impact {
+            font-size: 12px;
+            color: var(--color-text);
+            border-top: 1px dashed var(--color-border);
+            padding-top: 6px;
+        }
+
+        .polymarket-card__link {
+            font-size: 11px;
+            color: var(--color-text-muted);
+            text-decoration: none;
+        }
+
+        .polymarket-card__link:hover {
+            text-decoration: underline;
+        }
+
+        /* ===== レスポンシブ ===== */
+        @media (max-width: 600px) {
+            .market-cards {
+                grid-template-columns: repeat(2, 1fr);
             }
 
             .feature-name {
-                width: 180px;
-                flex-shrink: 0;
-                font-size: 13px;
-                color: var(--color-text);
-                text-align: right;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }
-
-            .feature-bar-track {
-                flex: 1;
-                height: 20px;
-                background: #f0f0f0;
-                border-radius: 3px;
-                overflow: hidden;
-                position: relative;
-            }
-
-            /* バー本体: width は JS で style="--w: 60%" のように設定 */
-            .f-bar {
-                display: inline-block;
-                height: 1em;
-                background: currentColor;
-                width: var(--w, 0%);
-                border-radius: 2px;
-                vertical-align: middle;
-            }
-
-            .feature-value {
-                width: 60px;
-                flex-shrink: 0;
-                font-size: 12px;
-                font-variant-numeric: tabular-nums;
-                color: var(--color-text-muted);
-                text-align: right;
-            }
-
-            /* ===== History_Table ===== */
-            .history-table {
-                width: 100%;
-                border-collapse: collapse;
-                font-size: 13px;
-                font-variant-numeric: tabular-nums;
-            }
-
-            .history-table th,
-            .history-table td {
-                padding: 8px 12px;
-                border-bottom: 1px solid var(--color-border);
-                text-align: center;
-            }
-
-            .history-table th:first-child,
-            .history-table td:first-child {
-                text-align: left;
-            }
-
-            .history-table th {
-                background: #f9f9f9;
-                font-weight: bold;
-                color: var(--color-text-muted);
+                width: 120px;
                 font-size: 12px;
             }
 
-            .history-table tbody tr:hover {
-                background: #fafafa;
+            main {
+                padding: 12px 10px;
+                gap: 14px;
             }
 
-            .hit {
-                color: #2a7a2a;
-                font-weight: bold;
+            .pred-symbol {
+                font-size: 36px;
             }
 
-            .miss {
-                color: #999;
+            .pred-label {
+                font-size: 24px;
             }
+        }
 
-            .pending {
-                color: var(--color-text-muted);
-                font-style: italic;
+        @media (max-width: 400px) {
+            .market-cards {
+                grid-template-columns: 1fr 1fr;
             }
+        }
+    </style>
+</head>
 
-            /* ===== フッター ===== */
-            .app-footer {
-                text-align: center;
-                padding: 20px 16px;
-                font-size: 12px;
-                color: var(--color-text-muted);
-                border-top: 1px solid var(--color-border);
-                margin-top: 8px;
-            }
+<body>
+    <header class="app-header">
+        <h1>日経寄り付き予想ダッシュボード</h1>
+        <div class="header-meta">
+            <span id="header-date" aria-label="スナップショット日付">—</span>
+            <span id="header-asof" aria-label="更新時刻">—</span>
+        </div>
+    </header>
 
-            /* ===== Today_Prediction_Card ===== */
-            .today-pred-card {
-                display: flex;
-                flex-wrap: wrap;
-                align-items: center;
-                gap: 24px;
-                padding: 8px 4px;
-            }
+    <main>
+        <!-- ① 予想カード（Prediction_Card） -->
+        <section id="prediction" aria-labelledby="pred-title">
+            <h2 id="pred-title">デイトレード注目銘柄</h2>
 
-            .today-pred-direction {
-                font-size: 56px;
-                font-weight: bold;
-                line-height: 1;
-                font-variant-numeric: tabular-nums;
-                white-space: nowrap;
-            }
-
-            .today-pred-meta {
-                display: flex;
-                flex-direction: column;
-                gap: 6px;
-                font-size: 14px;
-            }
-
-            .today-pred-meta .label {
-                color: var(--color-text-muted);
-                font-size: 12px;
-                margin-right: 6px;
-            }
-
-            .today-pred-meta .value {
-                font-variant-numeric: tabular-nums;
-                font-weight: bold;
-                font-size: 16px;
-            }
-
-            /* ===== レスポンシブ ===== */
-            @media (max-width: 600px) {
-                .market-cards {
-                    grid-template-columns: repeat(2, 1fr);
-                }
-
-                .feature-name {
-                    width: 120px;
-                    font-size: 12px;
-                }
-
-                main {
-                    padding: 12px 10px;
-                    gap: 14px;
-                }
-
-                .pred-symbol {
-                    font-size: 36px;
-                }
-
-                .pred-label {
-                    font-size: 24px;
-                }
-            }
-
-            @media (max-width: 400px) {
-                .market-cards {
-                    grid-template-columns: 1fr 1fr;
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <header class="app-header">
-            <h1>日経寄り付き予想ダッシュボード</h1>
-            <div class="header-meta">
-                <span id="header-date" aria-label="スナップショット日付"
-                    >—</span
-                >
-                <span id="header-asof" aria-label="更新時刻">—</span>
+            <!-- ローディングインジケータ -->
+            <div class="loading" role="status" aria-label="銘柄データを読み込み中">
+                読み込み中…
             </div>
-        </header>
 
-        <main>
-            <!-- ① 予想カード（Prediction_Card） -->
-            <section id="prediction" aria-labelledby="pred-title">
-                <h2 id="pred-title">デイトレード注目銘柄</h2>
+            <!-- エラーメッセージ（初期非表示、JS で表示） -->
+            <div class="error-message" role="alert" aria-live="assertive" hidden>
+                <!-- エラーメッセージが JS によって挿入される -->
+            </div>
 
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="銘柄データを読み込み中"
-                >
-                    読み込み中…
-                </div>
+            <!-- データ表示エリア（初期非表示、JS で表示） -->
+            <div id="prediction-content" hidden>
+                <!-- renderPredictionCard() によって描画される -->
+            </div>
+        </section>
 
-                <!-- エラーメッセージ（初期非表示、JS で表示） -->
-                <div
-                    class="error-message"
-                    role="alert"
-                    aria-live="assertive"
-                    hidden
-                >
-                    <!-- エラーメッセージが JS によって挿入される -->
-                </div>
-
-                <!-- データ表示エリア（初期非表示、JS で表示） -->
-                <div id="prediction-content" hidden>
-                    <!-- renderPredictionCard() によって描画される -->
-                </div>
-            </section>
-
-            <!-- ②-0 今日のN225予想 -->
-            <section id="today-pred" aria-labelledby="today-title">
-                <h2 id="today-title">今日のN225寄付き予想</h2>
-
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="最新予想を読み込み中"
-                >
-                    読み込み中…
-                </div>
-
-                <!-- エラーメッセージ -->
-                <div
-                    class="error-message"
-                    role="alert"
-                    aria-live="assertive"
-                    hidden
-                ></div>
-
-                <!-- データ表示エリア -->
-                <div id="today-pred-content" hidden>
-                    <!-- renderLatestPrediction() によって描画される -->
-                </div>
-            </section>
-
-            <!-- ② 日経225 方向性予想 -->
-            <section id="n225-pred" aria-labelledby="n225-title">
-                <h2 id="n225-title">日経225 方向性予想</h2>
-
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="予想データを読み込み中"
-                >
-                    読み込み中…
-                </div>
-
-                <!-- エラーメッセージ -->
-                <div
-                    class="error-message"
-                    role="alert"
-                    aria-live="assertive"
-                    hidden
-                ></div>
-
-                <!-- データ表示エリア -->
-                <div id="n225-pred-content" hidden>
-                    <!-- renderN225Predictions() によって描画される -->
-                </div>
-            </section>
-
-            <!-- ③ 米国マーケット（US_Market_Section） -->
-            <section id="us-market" aria-labelledby="us-title">
-                <h2 id="us-title">米国マーケット（前日終値）</h2>
-
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="米国マーケットを読み込み中"
-                >
-                    読み込み中…
-                </div>
-
-                <!-- エラーメッセージ -->
-                <div
-                    class="error-message"
-                    role="alert"
-                    aria-live="assertive"
-                    hidden
-                ></div>
-
-                <!-- データ表示エリア -->
-                <div id="us-market-content" hidden>
-                    <!-- renderUSMarketSection() によって描画される -->
-                </div>
-            </section>
-
-            <!-- ③ ADR乖離テーブル（ADR_Table） -->
-            <section id="adr" aria-labelledby="adr-title">
-                <h2 id="adr-title">主要企業 ADR 乖離</h2>
-                <p class="hint">
-                    東証終値（前日）と NY 終値（円換算）の差。プラス＝買い優勢。
-                </p>
-
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="ADR乖離データを読み込み中"
-                >
-                    読み込み中…
-                </div>
-
-                <!-- エラーメッセージ -->
-                <div
-                    class="error-message"
-                    role="alert"
-                    aria-live="assertive"
-                    hidden
-                ></div>
-
-                <!-- テーブルエリア（横スクロール用ラッパー） -->
-                <div id="adr-content" hidden>
-                    <div class="table-wrap">
-                        <!-- renderADRTable() によって .adr-table が挿入される -->
-                    </div>
-                </div>
-            </section>
-
-            <!-- ④ 特徴量寄与（Feature_Chart） -->
-            <section id="features" aria-labelledby="feat-title">
-                <h2 id="feat-title">予想根拠（特徴量の寄与）</h2>
-
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="特徴量寄与を読み込み中"
-                >
-                    読み込み中…
-                </div>
-
-                <!-- エラーメッセージ -->
-                <div
-                    class="error-message"
-                    role="alert"
-                    aria-live="assertive"
-                    hidden
-                ></div>
-
-                <!-- チャートエリア -->
-                <div id="features-content" hidden aria-labelledby="feat-title">
-                    <!-- renderFeatureChart() によって .feature-bars が挿入される -->
-                </div>
-            </section>
-
-            <!-- ⑥ 的中履歴（History_Table） -->
-            <section id="history" aria-labelledby="hist-title">
-                <h2 id="hist-title">直近の的中履歴（10営業日）</h2>
-
-                <!-- ローディングインジケータ -->
-                <div
-                    class="loading"
-                    role="status"
-                    aria-label="的中履歴を読み込み中"
-                >
-                    読み込み中…
-                </div>
-
-                <!-- エラーメッセージ -->
-                <div
-                    class="error-message"
-                    role="alert"
-                    aria-live="assertive"
-                    hidden
-                ></div>
-
-                <!-- テーブルエリア -->
-                <div id="history-content" hidden>
-                    <!-- renderHistoryTable() によって .history-table が挿入される -->
-                </div>
-            </section>
-        </main>
-
-        <footer class="app-footer">
-            <p>
-                ※
-                本ツールは個人利用の参考情報であり、投資勧誘を目的としたものではありません。
+        <!-- PTS ナイト 翌朝寄付き要注目銘柄 -->
+        <section id="pts-overnight" aria-labelledby="pts-overnight-title">
+            <h2 id="pts-overnight-title">
+                PTS ナイト 翌朝寄付き要注目銘柄
+            </h2>
+            <p class="hint">
+                引け後 16:30〜翌 6:00 の PTS 売買代金 TOP15。change% は TSE
+                終値からの乖離。
             </p>
-        </footer>
 
-        <script type="module">
-            // ===== 共通 fetch ヘルパー =====
+            <div class="loading" role="status" aria-label="PTSナイトデータを読み込み中">
+                読み込み中…
+            </div>
+            <div class="error-message" role="alert" aria-live="assertive" hidden></div>
+            <div id="pts-overnight-content" hidden>
+                <!-- renderPtsOvernight() で描画 -->
+            </div>
+        </section>
 
-            /**
-             * 指定 URL を fetch し JSON を返す。失敗時は status 付き Error を throw する。
-             */
-            async function fetchJson(url) {
-                const response = await fetch(url);
-                if (!response.ok) {
-                    const err = new Error(`HTTP ${response.status}`);
-                    err.status = response.status;
-                    throw err;
-                }
-                return response.json();
+        <!-- PTS デイ 寄付き GAP 候補 -->
+        <section id="pts-premarket" aria-labelledby="pts-premarket-title">
+            <h2 id="pts-premarket-title">PTS デイ 寄付き GAP 候補</h2>
+            <p class="hint">
+                8:20〜16:00 の PTS デイタイム売買代金 TOP15。change% が寄付
+                GAP 推定値の先行指標。
+            </p>
+
+            <div class="loading" role="status" aria-label="PTSデイデータを読み込み中">
+                読み込み中…
+            </div>
+            <div class="error-message" role="alert" aria-live="assertive" hidden></div>
+            <div id="pts-premarket-content" hidden>
+                <!-- renderPtsPremarket() で描画 -->
+            </div>
+        </section>
+
+        <!-- PTS 出来高サージ -->
+        <section id="pts-surge" aria-labelledby="pts-surge-title">
+            <h2 id="pts-surge-title">PTS 出来高サージ（異常出来高検知）</h2>
+            <p class="hint">
+                PTS ナイト出来高 / TSE 30 日平均
+                の比率。突発材料の早期発見に。
+            </p>
+
+            <div class="loading" role="status" aria-label="PTS出来高サージを読み込み中">
+                読み込み中…
+            </div>
+            <div class="error-message" role="alert" aria-live="assertive" hidden></div>
+            <div id="pts-surge-content" hidden>
+                <!-- renderPtsVolumeSurge() で描画 -->
+            </div>
+        </section>
+
+        <!-- ②-0 今日のN225予想 -->
+        <section id="today-pred" aria-labelledby="today-title">
+            <h2 id="today-title">今日のN225寄付き予想</h2>
+
+            <!-- ローディングインジケータ -->
+            <div class="loading" role="status" aria-label="最新予想を読み込み中">
+                読み込み中…
+            </div>
+
+            <!-- エラーメッセージ -->
+            <div class="error-message" role="alert" aria-live="assertive" hidden></div>
+
+            <!-- データ表示エリア -->
+            <div id="today-pred-content" hidden>
+                <!-- renderLatestPrediction() によって描画される -->
+            </div>
+        </section>
+
+        <!-- ② 日経225 方向性予想 -->
+        <section id="n225-pred" aria-labelledby="n225-title">
+            <h2 id="n225-title">日経225 方向性予想</h2>
+
+            <!-- ローディングインジケータ -->
+            <div class="loading" role="status" aria-label="予想データを読み込み中">
+                読み込み中…
+            </div>
+
+            <!-- エラーメッセージ -->
+            <div class="error-message" role="alert" aria-live="assertive" hidden></div>
+
+            <!-- データ表示エリア -->
+            <div id="n225-pred-content" hidden>
+                <!-- renderN225Predictions() によって描画される -->
+            </div>
+        </section>
+
+        <!-- ③ 米国マーケット（US_Market_Section） -->
+        <section id="us-market" aria-labelledby="us-title">
+            <h2 id="us-title">米国マーケット（前日終値）</h2>
+
+            <!-- ローディングインジケータ -->
+            <div class="loading" role="status" aria-label="米国マーケットを読み込み中">
+                読み込み中…
+            </div>
+
+            <!-- エラーメッセージ -->
+            <div class="error-message" role="alert" aria-live="assertive" hidden></div>
+
+            <!-- データ表示エリア -->
+            <div id="us-market-content" hidden>
+                <!-- renderUSMarketSection() によって描画される -->
+            </div>
+        </section>
+
+        <!-- ③ ADR乖離テーブル（ADR_Table） -->
+        <section id="adr" aria-labelledby="adr-title">
+            <h2 id="adr-title">主要企業 ADR 乖離</h2>
+            <p class="hint">
+                東証終値（前日）と NY 終値（円換算）の差。プラス＝買い優勢。
+            </p>
+
+            <!-- ローディングインジケータ -->
+            <div class="loading" role="status" aria-label="ADR乖離データを読み込み中">
+                読み込み中…
+            </div>
+
+            <!-- エラーメッセージ -->
+            <div class="error-message" role="alert" aria-live="assertive" hidden></div>
+
+            <!-- テーブルエリア（横スクロール用ラッパー） -->
+            <div id="adr-content" hidden>
+                <div class="table-wrap">
+                    <!-- renderADRTable() によって .adr-table が挿入される -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Polymarket センチメント -->
+        <section id="polymarket" aria-labelledby="polymarket-title">
+            <h2 id="polymarket-title">
+                Polymarket 予想市場センチメント
+            </h2>
+            <p class="hint">
+                マクロイベント（FOMC・米選挙・BOJ
+                等）の織り込み度合いを Polymarket の確率データから可視化。
+            </p>
+
+            <div class="loading" role="status" aria-label="Polymarketデータを読み込み中">
+                読み込み中…
+            </div>
+            <div class="error-message" role="alert" aria-live="assertive" hidden></div>
+            <div id="polymarket-content" hidden>
+                <!-- renderPolymarket() で描画 -->
+            </div>
+        </section>
+
+        <!-- ④ 特徴量寄与（Feature_Chart） -->
+        <section id="features" aria-labelledby="feat-title">
+            <h2 id="feat-title">予想根拠（特徴量の寄与）</h2>
+
+            <!-- ローディングインジケータ -->
+            <div class="loading" role="status" aria-label="特徴量寄与を読み込み中">
+                読み込み中…
+            </div>
+
+            <!-- エラーメッセージ -->
+            <div class="error-message" role="alert" aria-live="assertive" hidden></div>
+
+            <!-- チャートエリア -->
+            <div id="features-content" hidden aria-labelledby="feat-title">
+                <!-- renderFeatureChart() によって .feature-bars が挿入される -->
+            </div>
+        </section>
+
+        <!-- ⑥ 的中履歴（History_Table） -->
+        <section id="history" aria-labelledby="hist-title">
+            <h2 id="hist-title">直近の的中履歴（10営業日）</h2>
+
+            <!-- ローディングインジケータ -->
+            <div class="loading" role="status" aria-label="的中履歴を読み込み中">
+                読み込み中…
+            </div>
+
+            <!-- エラーメッセージ -->
+            <div class="error-message" role="alert" aria-live="assertive" hidden></div>
+
+            <!-- テーブルエリア -->
+            <div id="history-content" hidden>
+                <!-- renderHistoryTable() によって .history-table が挿入される -->
+            </div>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <p>
+            ※
+            本ツールは個人利用の参考情報であり、投資勧誘を目的としたものではありません。
+        </p>
+    </footer>
+
+    <script type="module">
+        // ===== 共通 fetch ヘルパー =====
+
+        /**
+         * 指定 URL を fetch し JSON を返す。失敗時は status 付き Error を throw する。
+         */
+        async function fetchJson(url) {
+            const response = await fetch(url);
+            if (!response.ok) {
+                const err = new Error(`HTTP ${response.status}`);
+                err.status = response.status;
+                throw err;
             }
+            return response.json();
+        }
 
-            // ===== 各エンドポイント fetch =====
+        // ===== 各エンドポイント fetch =====
 
-            /** /api/getdaytradelist デイトレード注目銘柄 */
-            const fetchDayTradeList = () => fetchJson("/api/getdaytradelist");
+        /** /api/getdaytradelist デイトレード注目銘柄 */
+        const fetchDayTradeList = () => fetchJson("/api/getdaytradelist");
 
-            /** /api/predictions?days=30 直近の N225 予測一覧 */
-            async function fetchN225Predictions() {
-                const data = await fetchJson("/api/predictions?days=30");
-                return data.items || [];
-            }
+        /** /api/predictions?days=30 直近の N225 予測一覧 */
+        async function fetchN225Predictions() {
+            const data = await fetchJson("/api/predictions?days=30");
+            return data.items || [];
+        }
 
-            /** /api/predictions/latest 最新の N225 予測 1 件 */
-            const fetchLatestPrediction = () =>
-                fetchJson("/api/predictions/latest");
+        /** /api/predictions/latest 最新の N225 予測 1 件 */
+        const fetchLatestPrediction = () =>
+            fetchJson("/api/predictions/latest");
 
-            /** /api/markets/us 米国主要指数 + USD/JPY 直近終値 */
-            async function fetchUSMarket() {
-                const data = await fetchJson("/api/markets/us");
-                const items = data.items || {};
-                // API は snake_case (usd_jpy / change_pct)、レンダラは camelCase (usdJpy / changePct)。
-                // yfinance 取得失敗時は close 等が null なので、その場合はカード自体を非表示にする。
-                const toCamel = (m) => {
-                    if (!m || m.close === null || m.change === null) return null;
-                    return {
-                        close: m.close,
-                        change: m.change,
-                        changePct: m.change_pct,
-                    };
-                };
+        /** /api/markets/us 米国主要指数 + USD/JPY 直近終値 */
+        async function fetchUSMarket() {
+            const data = await fetchJson("/api/markets/us");
+            const items = data.items || {};
+            // API は snake_case (usd_jpy / change_pct)、レンダラは camelCase (usdJpy / changePct)。
+            // yfinance 取得失敗時は close 等が null なので、その場合はカード自体を非表示にする。
+            const toCamel = (m) => {
+                if (!m || m.close === null || m.change === null) return null;
                 return {
-                    dow: toCamel(items.dow),
-                    nasdaq: toCamel(items.nasdaq),
-                    sp500: toCamel(items.sp500),
-                    usdJpy: toCamel(items.usd_jpy),
+                    close: m.close,
+                    change: m.change,
+                    changePct: m.change_pct,
                 };
-            }
+            };
+            return {
+                dow: toCamel(items.dow),
+                nasdaq: toCamel(items.nasdaq),
+                sp500: toCamel(items.sp500),
+                usdJpy: toCamel(items.usd_jpy),
+            };
+        }
 
-            /** /api/adr/deviation 東証 vs ADR 乖離率 */
-            async function fetchAdrDeviation() {
-                const data = await fetchJson("/api/adr/deviation");
-                // deviation_pct は % 表記 (例: 1.85)、レンダラは小数 (例: 0.0185) を期待
-                return (data.items || [])
-                    .filter(
-                        (it) =>
-                            it.deviation_pct !== null &&
-                            it.tse_close !== null &&
-                            it.adr_close_jpy !== null,
-                    )
-                    .map((it) => ({
-                        name: it.name,
-                        code: it.tse_code,
-                        tseClose: it.tse_close,
-                        adrCloseJpy: it.adr_close_jpy,
-                        diffPct: it.deviation_pct / 100,
-                    }));
-            }
-
-            /** /api/predictions/explanation/latest 特徴量寄与 (相関係数) */
-            async function fetchFeatureContributions() {
-                const data = await fetchJson(
-                    "/api/predictions/explanation/latest",
-                );
-                const features = (data.explanation?.features || [])
-                    .filter((f) => f.contribution !== null)
-                    .slice(0, 10);
-                return features.map((f) => ({
-                    name: f.name,
-                    contribution: f.contribution,
+        /** /api/adr/deviation 東証 vs ADR 乖離率 */
+        async function fetchAdrDeviation() {
+            const data = await fetchJson("/api/adr/deviation");
+            // deviation_pct は % 表記 (例: 1.85)、レンダラは小数 (例: 0.0185) を期待
+            return (data.items || [])
+                .filter(
+                    (it) =>
+                        it.deviation_pct !== null &&
+                        it.tse_close !== null &&
+                        it.adr_close_jpy !== null,
+                )
+                .map((it) => ({
+                    name: it.name,
+                    code: it.tse_code,
+                    tseClose: it.tse_close,
+                    adrCloseJpy: it.adr_close_jpy,
+                    diffPct: it.deviation_pct / 100,
                 }));
+        }
+
+        /** /api/predictions/explanation/latest 特徴量寄与 (相関係数) */
+        async function fetchFeatureContributions() {
+            const data = await fetchJson(
+                "/api/predictions/explanation/latest",
+            );
+            const features = (data.explanation?.features || [])
+                .filter((f) => f.contribution !== null)
+                .slice(0, 10);
+            return features.map((f) => ({
+                name: f.name,
+                contribution: f.contribution,
+            }));
+        }
+
+        /** /api/markets/pts/overnight PTS ナイト売買代金 TOP15 */
+        const fetchPtsOvernight = () =>
+            fetchJson("/api/markets/pts/overnight");
+
+        /** /api/markets/pts/premarket PTS デイ売買代金 TOP15 (寄付前 GAP 候補) */
+        const fetchPtsPremarket = () =>
+            fetchJson("/api/markets/pts/premarket");
+
+        /** /api/markets/pts/volume_surge PTS 出来高サージ */
+        const fetchPtsVolumeSurge = () =>
+            fetchJson("/api/markets/pts/volume_surge");
+
+        /** /api/markets/polymarket Polymarket 確率データ */
+        const fetchPolymarket = () => fetchJson("/api/markets/polymarket");
+
+        /** /api/metrics/accuracy?days=14 直近 14 日間の的中履歴 */
+        async function fetchAccuracyHistory() {
+            const data = await fetchJson("/api/metrics/accuracy?days=14");
+            // by_date を新しい順 → 直近 10 営業日に整形。renderHistoryTable は up/down 文字列を期待
+            const sorted = [...(data.by_date || [])].sort((a, b) =>
+                b.actual_target_date.localeCompare(a.actual_target_date),
+            );
+            return sorted.slice(0, 10).map((r) => ({
+                date: r.actual_target_date,
+                predicted: r.prediction_sign === 1 ? "up" : "down",
+                actual:
+                    r.actual_sign === 1
+                        ? "up"
+                        : r.actual_sign === -1
+                            ? "down"
+                            : null,
+            }));
+        }
+
+        // ===== 5.2: showLoading / showError / showContent =====
+
+        function showLoading(sectionId) {
+            const section = document.getElementById(sectionId);
+            if (!section) return;
+            const loading = section.querySelector('[role="status"]');
+            const error = section.querySelector('[role="alert"]');
+            const content = section.querySelector(`#${sectionId}-content`);
+            if (loading) {
+                loading.hidden = false;
             }
-
-            /** /api/metrics/accuracy?days=14 直近 14 日間の的中履歴 */
-            async function fetchAccuracyHistory() {
-                const data = await fetchJson("/api/metrics/accuracy?days=14");
-                // by_date を新しい順 → 直近 10 営業日に整形。renderHistoryTable は up/down 文字列を期待
-                const sorted = [...(data.by_date || [])].sort((a, b) =>
-                    b.actual_target_date.localeCompare(a.actual_target_date),
-                );
-                return sorted.slice(0, 10).map((r) => ({
-                    date: r.actual_target_date,
-                    predicted: r.prediction_sign === 1 ? "up" : "down",
-                    actual:
-                        r.actual_sign === 1
-                            ? "up"
-                            : r.actual_sign === -1
-                              ? "down"
-                              : null,
-                }));
+            if (error) {
+                error.hidden = true;
+                error.textContent = "";
             }
-
-            // ===== 5.2: showLoading / showError / showContent =====
-
-            function showLoading(sectionId) {
-                const section = document.getElementById(sectionId);
-                if (!section) return;
-                const loading = section.querySelector('[role="status"]');
-                const error = section.querySelector('[role="alert"]');
-                const content = section.querySelector(`#${sectionId}-content`);
-                if (loading) {
-                    loading.hidden = false;
-                }
-                if (error) {
-                    error.hidden = true;
-                    error.textContent = "";
-                }
-                if (content) {
-                    content.hidden = true;
-                }
+            if (content) {
+                content.hidden = true;
             }
+        }
 
-            function showError(sectionId, message) {
-                const section = document.getElementById(sectionId);
-                if (!section) return;
-                const loading = section.querySelector('[role="status"]');
-                const error = section.querySelector('[role="alert"]');
-                const content = section.querySelector(`#${sectionId}-content`);
-                if (loading) {
-                    loading.hidden = true;
-                }
-                if (error) {
-                    error.hidden = false;
-                    error.textContent = message;
-                }
-                if (content) {
-                    content.hidden = true;
-                }
+        function showError(sectionId, message) {
+            const section = document.getElementById(sectionId);
+            if (!section) return;
+            const loading = section.querySelector('[role="status"]');
+            const error = section.querySelector('[role="alert"]');
+            const content = section.querySelector(`#${sectionId}-content`);
+            if (loading) {
+                loading.hidden = true;
             }
-
-            function showContent(sectionId) {
-                const section = document.getElementById(sectionId);
-                if (!section) return;
-                const loading = section.querySelector('[role="status"]');
-                const error = section.querySelector('[role="alert"]');
-                const content = section.querySelector(`#${sectionId}-content`);
-                if (loading) {
-                    loading.hidden = true;
-                }
-                if (error) {
-                    error.hidden = true;
-                }
-                if (content) {
-                    content.hidden = false;
-                }
+            if (error) {
+                error.hidden = false;
+                error.textContent = message;
             }
-
-            // ===== ヘッダー更新 =====
-
-            function updateHeader(asOf) {
-                const dateEl = document.getElementById("header-date");
-                const asofEl = document.getElementById("header-asof");
-                if (!asOf) return;
-                const dt = new Date(asOf);
-                const dateStr = dt.toLocaleDateString("ja-JP", {
-                    year: "numeric",
-                    month: "2-digit",
-                    day: "2-digit",
-                    timeZone: "Asia/Tokyo",
-                });
-                const timeStr = dt.toLocaleTimeString("ja-JP", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    timeZone: "Asia/Tokyo",
-                });
-                if (dateEl) dateEl.textContent = dateStr + " 米国引け基準";
-                if (asofEl) asofEl.textContent = `最終更新 ${timeStr} JST`;
+            if (content) {
+                content.hidden = true;
             }
+        }
 
-            // ===== 5.3: renderDayTradeList =====
+        function showContent(sectionId) {
+            const section = document.getElementById(sectionId);
+            if (!section) return;
+            const loading = section.querySelector('[role="status"]');
+            const error = section.querySelector('[role="alert"]');
+            const content = section.querySelector(`#${sectionId}-content`);
+            if (loading) {
+                loading.hidden = true;
+            }
+            if (error) {
+                error.hidden = true;
+            }
+            if (content) {
+                content.hidden = false;
+            }
+        }
 
-            function renderDayTradeList(data) {
-                const content = document.getElementById("prediction-content");
-                if (!content) return;
+        // ===== ヘッダー更新 =====
 
-                const { count, min_trading_value, min_volume_ratio, items } =
-                    data;
-                const minTradeStr = Math.round(
-                    min_trading_value / 1e8,
-                ).toLocaleString("ja-JP");
+        function updateHeader(asOf) {
+            const dateEl = document.getElementById("header-date");
+            const asofEl = document.getElementById("header-asof");
+            if (!asOf) return;
+            const dt = new Date(asOf);
+            const dateStr = dt.toLocaleDateString("ja-JP", {
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                timeZone: "Asia/Tokyo",
+            });
+            const timeStr = dt.toLocaleTimeString("ja-JP", {
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "Asia/Tokyo",
+            });
+            if (dateEl) dateEl.textContent = dateStr + " 米国引け基準";
+            if (asofEl) asofEl.textContent = `最終更新 ${timeStr} JST`;
+        }
 
-                const rows = items
-                    .map((item, i) => {
-                        const changePct = item["値上率(%)"];
-                        const isUp = changePct >= 0;
-                        const changeClass = isUp ? "pos" : "neg";
-                        const changeSymbol = isUp ? "▲" : "▼";
-                        const changePctStr = `${changeSymbol}${Math.abs(changePct).toFixed(2)}%`;
-                        const tradeVal = Math.round(
-                            item["売買代金"] / 1e8,
-                        ).toLocaleString("ja-JP");
-                        const price = item["取引値"].toLocaleString("ja-JP", {
-                            maximumFractionDigits: 1,
-                        });
-                        const volRatio = item["出来高増加率"].toFixed(2);
-                        return `
+        // ===== 5.3: renderDayTradeList =====
+
+        function renderDayTradeList(data) {
+            const content = document.getElementById("prediction-content");
+            if (!content) return;
+
+            const { count, min_trading_value, min_volume_ratio, items } =
+                data;
+            const minTradeStr = Math.round(
+                min_trading_value / 1e8,
+            ).toLocaleString("ja-JP");
+
+            const rows = items
+                .map((item, i) => {
+                    const changePct = item["値上率(%)"];
+                    const isUp = changePct >= 0;
+                    const changeClass = isUp ? "pos" : "neg";
+                    const changeSymbol = isUp ? "▲" : "▼";
+                    const changePctStr = `${changeSymbol}${Math.abs(changePct).toFixed(2)}%`;
+                    const tradeVal = Math.round(
+                        item["売買代金"] / 1e8,
+                    ).toLocaleString("ja-JP");
+                    const price = item["取引値"].toLocaleString("ja-JP", {
+                        maximumFractionDigits: 1,
+                    });
+                    const volRatio = item["出来高増加率"].toFixed(2);
+                    return `
           <tr>
             <td class="num">${i + 1}</td>
             <td>${item["コード"]}</td>
@@ -942,10 +1079,10 @@
             <td class="num">${tradeVal}</td>
             <td class="num">${volRatio}倍</td>
           </tr>`;
-                    })
-                    .join("");
+                })
+                .join("");
 
-                content.innerHTML = `
+            content.innerHTML = `
       <p class="hint">条件：売買代金${minTradeStr}億円以上・出来高増加率${min_volume_ratio}倍以上（${count}銘柄）</p>
       <div class="table-wrap">
         <table class="daytrade-table">
@@ -964,116 +1101,116 @@
           <tbody>${rows}</tbody>
         </table>
       </div>`;
-                showContent("prediction");
-            }
+            showContent("prediction");
+        }
 
-            // ===== 5.4: renderUSMarketSection =====
+        // ===== 5.4: renderUSMarketSection =====
 
-            function renderUSMarketSection(usMarket) {
-                const content = document.getElementById("us-market-content");
-                if (!content) return;
+        function renderUSMarketSection(usMarket) {
+            const content = document.getElementById("us-market-content");
+            if (!content) return;
 
-                const markets = [
-                    { key: "dow", label: "NYダウ" },
-                    { key: "nasdaq", label: "NASDAQ" },
-                    { key: "sp500", label: "S&P 500" },
-                    { key: "usdJpy", label: "USD/JPY" },
-                ];
+            const markets = [
+                { key: "dow", label: "NYダウ" },
+                { key: "nasdaq", label: "NASDAQ" },
+                { key: "sp500", label: "S&P 500" },
+                { key: "usdJpy", label: "USD/JPY" },
+            ];
 
-                const cards = markets
-                    .map(({ key, label }) => {
-                        const m = usMarket[key];
-                        if (!m) return "";
-                        const isUp = m.change >= 0;
-                        const changeClass = isUp
-                            ? "card__change--up"
-                            : "card__change--down";
-                        const changeSymbol = isUp ? "▲" : "▼";
-                        const changePctStr = (
-                            Math.abs(m.changePct) * 100
-                        ).toFixed(2);
-                        const changeStr = `${changeSymbol} ${Math.abs(m.change).toLocaleString("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${changePctStr}%)`;
-                        const closeStr = m.close.toLocaleString("ja-JP", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                        });
-                        return `
+            const cards = markets
+                .map(({ key, label }) => {
+                    const m = usMarket[key];
+                    if (!m) return "";
+                    const isUp = m.change >= 0;
+                    const changeClass = isUp
+                        ? "card__change--up"
+                        : "card__change--down";
+                    const changeSymbol = isUp ? "▲" : "▼";
+                    const changePctStr = (
+                        Math.abs(m.changePct) * 100
+                    ).toFixed(2);
+                    const changeStr = `${changeSymbol} ${Math.abs(m.change).toLocaleString("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${changePctStr}%)`;
+                    const closeStr = m.close.toLocaleString("ja-JP", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                    });
+                    return `
           <div class="market-card">
             <p class="market-card__name">${label}</p>
             <p class="market-card__close num">${closeStr}</p>
             <p class="market-card__change ${changeClass} num" aria-label="${label} 変化: ${changeStr}">${changeStr}</p>
           </div>
         `;
-                    })
-                    .join("");
+                })
+                .join("");
 
-                content.innerHTML = `<div class="market-cards">${cards}</div>`;
-                showContent("us-market");
-            }
+            content.innerHTML = `<div class="market-cards">${cards}</div>`;
+            showContent("us-market");
+        }
 
-            // ===== 5.5: renderADRTable（ソート機能付き） =====
+        // ===== 5.5: renderADRTable（ソート機能付き） =====
 
-            // ソート状態
-            let currentSortKey = "diffPct";
-            let currentSortDir = "desc";
+        // ソート状態
+        let currentSortKey = "diffPct";
+        let currentSortDir = "desc";
 
-            function renderADRTable(
-                adr,
-                sortKey = currentSortKey,
-                sortDir = currentSortDir,
-            ) {
-                const content = document.getElementById("adr-content");
-                if (!content) return;
+        function renderADRTable(
+            adr,
+            sortKey = currentSortKey,
+            sortDir = currentSortDir,
+        ) {
+            const content = document.getElementById("adr-content");
+            if (!content) return;
 
-                // ソート
-                const sorted = [...adr].sort((a, b) => {
-                    const av = a[sortKey] ?? 0;
-                    const bv = b[sortKey] ?? 0;
-                    return sortDir === "asc" ? av - bv : bv - av;
-                });
+            // ソート
+            const sorted = [...adr].sort((a, b) => {
+                const av = a[sortKey] ?? 0;
+                const bv = b[sortKey] ?? 0;
+                return sortDir === "asc" ? av - bv : bv - av;
+            });
 
-                const columns = [
-                    { key: "name", label: "銘柄", sortable: false },
-                    { key: "code", label: "コード", sortable: false },
-                    { key: "tseClose", label: "東証終値", sortable: true },
-                    {
-                        key: "adrCloseJpy",
-                        label: "ADR終値(円換算)",
-                        sortable: true,
-                    },
-                    { key: "diffPct", label: "乖離%", sortable: true },
-                    { key: "signal", label: "寄り想定", sortable: false },
-                ];
+            const columns = [
+                { key: "name", label: "銘柄", sortable: false },
+                { key: "code", label: "コード", sortable: false },
+                { key: "tseClose", label: "東証終値", sortable: true },
+                {
+                    key: "adrCloseJpy",
+                    label: "ADR終値(円換算)",
+                    sortable: true,
+                },
+                { key: "diffPct", label: "乖離%", sortable: true },
+                { key: "signal", label: "寄り想定", sortable: false },
+            ];
 
-                const thead = columns
-                    .map((col) => {
-                        if (!col.sortable)
-                            return `<th scope="col">${col.label}</th>`;
-                        const ariaSort =
-                            col.key === sortKey
-                                ? sortDir === "asc"
-                                    ? "ascending"
-                                    : "descending"
-                                : "none";
-                        const indicator =
-                            col.key === sortKey
-                                ? sortDir === "asc"
-                                    ? " ↑"
-                                    : " ↓"
-                                : "";
-                        return `<th scope="col" data-sort-key="${col.key}" aria-sort="${ariaSort}">${col.label}${indicator}</th>`;
-                    })
-                    .join("");
+            const thead = columns
+                .map((col) => {
+                    if (!col.sortable)
+                        return `<th scope="col">${col.label}</th>`;
+                    const ariaSort =
+                        col.key === sortKey
+                            ? sortDir === "asc"
+                                ? "ascending"
+                                : "descending"
+                            : "none";
+                    const indicator =
+                        col.key === sortKey
+                            ? sortDir === "asc"
+                                ? " ↑"
+                                : " ↓"
+                            : "";
+                    return `<th scope="col" data-sort-key="${col.key}" aria-sort="${ariaSort}">${col.label}${indicator}</th>`;
+                })
+                .join("");
 
-                const tbody = sorted
-                    .map((entry) => {
-                        const isUp = entry.diffPct >= 0;
-                        const diffClass = isUp ? "pos" : "neg";
-                        const diffSymbol = isUp ? "▲" : "▼";
-                        const diffPctStr = `${diffSymbol} ${(Math.abs(entry.diffPct) * 100).toFixed(2)}%`;
-                        const badgeClass = isUp ? "badge--up" : "badge--down";
-                        const badgeText = isUp ? "▲ 買い気配" : "▼ 売り気配";
-                        return `
+            const tbody = sorted
+                .map((entry) => {
+                    const isUp = entry.diffPct >= 0;
+                    const diffClass = isUp ? "pos" : "neg";
+                    const diffSymbol = isUp ? "▲" : "▼";
+                    const diffPctStr = `${diffSymbol} ${(Math.abs(entry.diffPct) * 100).toFixed(2)}%`;
+                    const badgeClass = isUp ? "badge--up" : "badge--down";
+                    const badgeText = isUp ? "▲ 買い気配" : "▼ 売り気配";
+                    return `
           <tr>
             <th scope="row">${entry.name}</th>
             <td>${entry.code}</td>
@@ -1083,63 +1220,63 @@
             <td><span class="badge ${badgeClass}">${badgeText}</span></td>
           </tr>
         `;
-                    })
-                    .join("");
+                })
+                .join("");
 
-                const emptyRow =
-                    sorted.length === 0
-                        ? '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px">ADRデータがありません</td></tr>'
-                        : "";
+            const emptyRow =
+                sorted.length === 0
+                    ? '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px">ADRデータがありません</td></tr>'
+                    : "";
 
-                const tableHtml = `
+            const tableHtml = `
         <table class="adr-table">
           <thead><tr>${thead}</tr></thead>
           <tbody>${tbody || emptyRow}</tbody>
         </table>
       `;
 
-                const wrap = content.querySelector(".table-wrap");
-                if (wrap) wrap.innerHTML = tableHtml;
+            const wrap = content.querySelector(".table-wrap");
+            if (wrap) wrap.innerHTML = tableHtml;
 
-                // ソートイベント
-                content.querySelectorAll("th[data-sort-key]").forEach((th) => {
-                    th.addEventListener("click", () => {
-                        const key = th.dataset.sortKey;
-                        if (key === currentSortKey) {
-                            currentSortDir =
-                                currentSortDir === "asc" ? "desc" : "asc";
-                        } else {
-                            currentSortKey = key;
-                            currentSortDir = "desc";
-                        }
-                        renderADRTable(adr, currentSortKey, currentSortDir);
-                    });
+            // ソートイベント
+            content.querySelectorAll("th[data-sort-key]").forEach((th) => {
+                th.addEventListener("click", () => {
+                    const key = th.dataset.sortKey;
+                    if (key === currentSortKey) {
+                        currentSortDir =
+                            currentSortDir === "asc" ? "desc" : "asc";
+                    } else {
+                        currentSortKey = key;
+                        currentSortDir = "desc";
+                    }
+                    renderADRTable(adr, currentSortKey, currentSortDir);
                 });
+            });
 
-                showContent("adr");
-            }
+            showContent("adr");
+        }
 
-            // ===== 5.6: renderFeatureChart =====
+        // ===== 5.6: renderFeatureChart =====
 
-            function renderFeatureChart(features) {
-                const content = document.getElementById("features-content");
-                if (!content) return;
+        function renderFeatureChart(features) {
+            const content = document.getElementById("features-content");
+            if (!content) return;
 
-                const maxAbs = Math.max(
-                    ...features.map((f) => Math.abs(f.contribution)),
-                    0.01,
-                );
+            const maxAbs = Math.max(
+                ...features.map((f) => Math.abs(f.contribution)),
+                0.01,
+            );
 
-                const bars = features
-                    .map((f) => {
-                        const isPos = f.contribution >= 0;
-                        const colorClass = isPos ? "pos" : "neg";
-                        const widthPct = Math.round(
-                            (Math.abs(f.contribution) / maxAbs) * 100,
-                        );
-                        const valStr =
-                            (isPos ? "+" : "") + f.contribution.toFixed(2);
-                        return `
+            const bars = features
+                .map((f) => {
+                    const isPos = f.contribution >= 0;
+                    const colorClass = isPos ? "pos" : "neg";
+                    const widthPct = Math.round(
+                        (Math.abs(f.contribution) / maxAbs) * 100,
+                    );
+                    const valStr =
+                        (isPos ? "+" : "") + f.contribution.toFixed(2);
+                    return `
           <div class="feature-row">
             <span class="feature-name">${f.name}</span>
             <span class="feature-bar-track">
@@ -1154,38 +1291,38 @@
             <span class="feature-value ${colorClass} num">${valStr}</span>
           </div>
         `;
-                    })
-                    .join("");
+                })
+                .join("");
 
-                content.innerHTML = `<div class="feature-bars" aria-labelledby="feat-title">${bars}</div>`;
-                showContent("features");
-            }
+            content.innerHTML = `<div class="feature-bars" aria-labelledby="feat-title">${bars}</div>`;
+            showContent("features");
+        }
 
-            // ===== 5.7: renderHistoryTable =====
+        // ===== 5.7: renderHistoryTable =====
 
-            function renderHistoryTable(history) {
-                const content = document.getElementById("history-content");
-                if (!content) return;
+        function renderHistoryTable(history) {
+            const content = document.getElementById("history-content");
+            if (!content) return;
 
-                const dirLabel = (dir) =>
-                    dir === "up" ? "▲ 陽線" : dir === "down" ? "▼ 陰線" : "—";
+            const dirLabel = (dir) =>
+                dir === "up" ? "▲ 陽線" : dir === "down" ? "▼ 陰線" : "—";
 
-                const rows = history
-                    .map((h) => {
-                        let hitClass = "pending";
-                        let hitText = "—";
-                        if (h.actual) {
-                            const isHit = h.predicted === h.actual;
-                            hitClass = isHit ? "hit" : "miss";
-                            hitText = isHit ? "✓ 的中" : "✗ 外れ";
-                        }
-                        const predClass = h.predicted === "up" ? "pos" : "neg";
-                        const actClass = h.actual
-                            ? h.actual === "up"
-                                ? "pos"
-                                : "neg"
-                            : "";
-                        return `
+            const rows = history
+                .map((h) => {
+                    let hitClass = "pending";
+                    let hitText = "—";
+                    if (h.actual) {
+                        const isHit = h.predicted === h.actual;
+                        hitClass = isHit ? "hit" : "miss";
+                        hitText = isHit ? "✓ 的中" : "✗ 外れ";
+                    }
+                    const predClass = h.predicted === "up" ? "pos" : "neg";
+                    const actClass = h.actual
+                        ? h.actual === "up"
+                            ? "pos"
+                            : "neg"
+                        : "";
+                    return `
           <tr>
             <td>${h.date}</td>
             <td class="${predClass}">${dirLabel(h.predicted)}</td>
@@ -1193,19 +1330,19 @@
             <td class="${hitClass}">${hitText}</td>
           </tr>
         `;
-                    })
-                    .join("");
+                })
+                .join("");
 
-                const hitCount = history.filter(
-                    (h) => h.actual && h.predicted === h.actual,
-                ).length;
-                const totalWithActual = history.filter((h) => h.actual).length;
-                const accuracyText =
-                    totalWithActual > 0
-                        ? `直近${totalWithActual}営業日の的中率：${Math.round((hitCount / totalWithActual) * 100)}%`
-                        : "";
+            const hitCount = history.filter(
+                (h) => h.actual && h.predicted === h.actual,
+            ).length;
+            const totalWithActual = history.filter((h) => h.actual).length;
+            const accuracyText =
+                totalWithActual > 0
+                    ? `直近${totalWithActual}営業日の的中率：${Math.round((hitCount / totalWithActual) * 100)}%`
+                    : "";
 
-                content.innerHTML = `
+            content.innerHTML = `
         <table class="history-table">
           <thead>
             <tr>
@@ -1219,42 +1356,42 @@
         </table>
         ${accuracyText ? `<p class="summary num" style="margin-top:12px;font-size:13px;color:#666">${accuracyText}</p>` : ""}
       `;
-                showContent("history");
-            }
+            showContent("history");
+        }
 
-            // ===== renderLatestPrediction =====
+        // ===== renderLatestPrediction =====
 
-            /**
-             * /api/predictions/latest のレスポンスを受け取り、
-             * 「今日のN225予想」カードを描画する。
-             */
-            function renderLatestPrediction(data) {
-                const content = document.getElementById("today-pred-content");
-                if (!content) return;
+        /**
+         * /api/predictions/latest のレスポンスを受け取り、
+         * 「今日のN225予想」カードを描画する。
+         */
+        function renderLatestPrediction(data) {
+            const content = document.getElementById("today-pred-content");
+            if (!content) return;
 
-                const p = data.prediction || {};
-                const isUp = p.prediction_sign === 1;
-                const dirClass = isUp ? "pos" : "neg";
-                const dirSymbol = isUp ? "▲" : "▼";
-                const dirLabel = isUp ? "上昇" : "下落";
-                const probPct =
-                    typeof p.probability_up === "number"
-                        ? (p.probability_up * 100).toFixed(1) + "%"
-                        : "—";
-                const predictedClose =
-                    typeof p.predicted_close === "number"
-                        ? p.predicted_close.toLocaleString("ja-JP", {
-                              maximumFractionDigits: 0,
-                          }) + " 円"
-                        : "—";
-                const predictedReturn =
-                    typeof p.predicted_return === "number"
-                        ? `${p.predicted_return >= 0 ? "+" : ""}${(p.predicted_return * 100).toFixed(2)}%`
-                        : "—";
-                const targetDate = p.target_date || "—";
-                const asOfDate = p.as_of_date || "—";
+            const p = data.prediction || {};
+            const isUp = p.prediction_sign === 1;
+            const dirClass = isUp ? "pos" : "neg";
+            const dirSymbol = isUp ? "▲" : "▼";
+            const dirLabel = isUp ? "上昇" : "下落";
+            const probPct =
+                typeof p.probability_up === "number"
+                    ? (p.probability_up * 100).toFixed(1) + "%"
+                    : "—";
+            const predictedClose =
+                typeof p.predicted_close === "number"
+                    ? p.predicted_close.toLocaleString("ja-JP", {
+                        maximumFractionDigits: 0,
+                    }) + " 円"
+                    : "—";
+            const predictedReturn =
+                typeof p.predicted_return === "number"
+                    ? `${p.predicted_return >= 0 ? "+" : ""}${(p.predicted_return * 100).toFixed(2)}%`
+                    : "—";
+            const targetDate = p.target_date || "—";
+            const asOfDate = p.as_of_date || "—";
 
-                content.innerHTML = `
+            content.innerHTML = `
         <div class="today-pred-card">
           <div class="today-pred-direction ${dirClass}" aria-label="予想方向: ${dirLabel}">
             ${dirSymbol} ${dirLabel}
@@ -1267,46 +1404,46 @@
             <div><span class="label">上昇確率</span><span class="value num">${probPct}</span></div>
           </div>
         </div>`;
-                showContent("today-pred");
-            }
+            showContent("today-pred");
+        }
 
-            // ===== 5.8: renderN225Predictions =====
+        // ===== 5.8: renderN225Predictions =====
 
-            function renderN225Predictions(data) {
-                const content = document.getElementById("n225-pred-content");
-                if (!content) return;
+        function renderN225Predictions(data) {
+            const content = document.getElementById("n225-pred-content");
+            if (!content) return;
 
-                const sorted = [...data].sort((a, b) =>
-                    b.target_date.localeCompare(a.target_date),
-                );
+            const sorted = [...data].sort((a, b) =>
+                b.target_date.localeCompare(a.target_date),
+            );
 
-                const rows = sorted
-                    .map((p) => {
-                        const isUp = p.prediction_sign === 1;
-                        const dirClass = isUp ? "pos" : "neg";
-                        const dir = isUp ? "▲ 陽線" : "▼ 陰線";
-                        const probPct = (p.probability_up * 100).toFixed(1);
-                        const predictedAt = new Date(
-                            p.predicted_at,
-                        ).toLocaleString("ja-JP", {
-                            timeZone: "Asia/Tokyo",
-                            year: "numeric",
-                            month: "2-digit",
-                            day: "2-digit",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                        });
-                        return `
+            const rows = sorted
+                .map((p) => {
+                    const isUp = p.prediction_sign === 1;
+                    const dirClass = isUp ? "pos" : "neg";
+                    const dir = isUp ? "▲ 陽線" : "▼ 陰線";
+                    const probPct = (p.probability_up * 100).toFixed(1);
+                    const predictedAt = new Date(
+                        p.predicted_at,
+                    ).toLocaleString("ja-JP", {
+                        timeZone: "Asia/Tokyo",
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                    });
+                    return `
           <tr>
             <td>${p.target_date}</td>
             <td class="${dirClass}">${dir}</td>
             <td class="num">${probPct}%</td>
             <td>${predictedAt}</td>
           </tr>`;
-                    })
-                    .join("");
+                })
+                .join("");
 
-                content.innerHTML = `
+            content.innerHTML = `
       <div class="table-wrap">
         <table class="history-table">
           <thead>
@@ -1320,92 +1457,344 @@
           <tbody>${rows}</tbody>
         </table>
       </div>`;
-                showContent("n225-pred");
+            showContent("n225-pred");
+        }
+
+        // ===== renderPtsRanking (overnight / premarket 共通) =====
+
+        /**
+         * PTS 売買代金ランキングを描画する。
+         * @param {string} sectionId - "pts-overnight" or "pts-premarket"
+         * @param {Object} data - API レスポンス
+         */
+        function renderPtsRanking(sectionId, data) {
+            const content = document.getElementById(`${sectionId}-content`);
+            if (!content) return;
+
+            const items = data.items || [];
+            const fetchedAt = data.fetched_at
+                ? new Date(data.fetched_at).toLocaleString("ja-JP", {
+                    timeZone: "Asia/Tokyo",
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                })
+                : "—";
+
+            if (items.length === 0) {
+                content.innerHTML = `<p class="hint">現在表示できるデータがありません（取引時間外、もしくは Kabutan の取得に失敗した可能性があります）。</p>`;
+                showContent(sectionId);
+                return;
             }
 
-            // ===== エラーメッセージ生成ヘルパー =====
+            const rows = items
+                .map((it) => {
+                    const cp = it.change_pct;
+                    const isUp = (cp ?? 0) >= 0;
+                    const cls = isUp ? "pos" : "neg";
+                    const sym = isUp ? "▲" : "▼";
+                    const changePctStr =
+                        cp !== null && cp !== undefined
+                            ? `${sym}${Math.abs(cp).toFixed(2)}%`
+                            : "—";
+                    // 売買代金は百万円単位 → 億円表示
+                    const tradeOku =
+                        it.trading_value_million_jpy != null
+                            ? (
+                                it.trading_value_million_jpy / 100
+                            ).toLocaleString("ja-JP", {
+                                maximumFractionDigits: 1,
+                            })
+                            : "—";
+                    const tseClose =
+                        it.tse_close != null
+                            ? it.tse_close.toLocaleString("ja-JP")
+                            : "—";
+                    const ptsPrice =
+                        it.pts_price != null
+                            ? it.pts_price.toLocaleString("ja-JP")
+                            : "—";
+                    return `
+          <tr>
+            <td class="num">${it.rank}</td>
+            <td><a href="${it.kabutan_url}" target="_blank" rel="noopener noreferrer">${it.code}</a></td>
+            <td>${it.name}</td>
+            <td>${it.market}</td>
+            <td class="num">${tseClose}</td>
+            <td class="num">${ptsPrice}</td>
+            <td class="num ${cls}">${changePctStr}</td>
+            <td class="num">${tradeOku}</td>
+          </tr>`;
+                })
+                .join("");
 
-            /**
-             * fetch エラーをユーザ向けメッセージに変換する。
-             * 404 はデータ未生成扱いの専用文言、それ以外は汎用メッセージ。
-             */
-            function errorMessageFor(err) {
-                if (err && err.status === 404) {
-                    return "データがまだありません。";
-                }
-                if (!err || err.status === 503 || !err.status) {
-                    return "データの取得に失敗しました。しばらく後に再読み込みしてください。";
-                }
-                return "予期しないエラーが発生しました。";
+            content.innerHTML = `
+        <p class="hint">取得時刻: ${fetchedAt} JST（${items.length} 銘柄）</p>
+        <div class="table-wrap">
+          <table class="pts-table">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">コード</th>
+                <th scope="col">銘柄名</th>
+                <th scope="col">市場</th>
+                <th scope="col">TSE終値</th>
+                <th scope="col">PTS価格</th>
+                <th scope="col">乖離率</th>
+                <th scope="col">売買代金(億)</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+            showContent(sectionId);
+        }
+
+        const renderPtsOvernight = (data) =>
+            renderPtsRanking("pts-overnight", data);
+        const renderPtsPremarket = (data) =>
+            renderPtsRanking("pts-premarket", data);
+
+        // ===== renderPtsVolumeSurge =====
+
+        function renderPtsVolumeSurge(data) {
+            const content = document.getElementById("pts-surge-content");
+            if (!content) return;
+
+            const items = data.items || [];
+            const minRatio = data.min_surge_ratio ?? 0.5;
+
+            if (items.length === 0) {
+                content.innerHTML = `<p class="hint">現在 surge ratio ${minRatio} 以上の銘柄はありません。</p>`;
+                showContent("pts-surge");
+                return;
             }
 
-            // ===== init =====
+            const rows = items
+                .map((it) => {
+                    const cp = it.change_pct;
+                    const isUp = (cp ?? 0) >= 0;
+                    const cls = isUp ? "pos" : "neg";
+                    const sym = isUp ? "▲" : "▼";
+                    const changePctStr =
+                        cp !== null && cp !== undefined
+                            ? `${sym}${Math.abs(cp).toFixed(2)}%`
+                            : "—";
+                    // 出来高は株数 → 千株表示
+                    const ptsVolK =
+                        it.pts_volume != null
+                            ? Math.round(
+                                it.pts_volume / 1000,
+                            ).toLocaleString("ja-JP")
+                            : "—";
+                    const avgVolK =
+                        it.tse_avg_volume_30d != null
+                            ? Math.round(
+                                it.tse_avg_volume_30d / 1000,
+                            ).toLocaleString("ja-JP")
+                            : "—";
+                    const surgeStr =
+                        it.surge_ratio != null
+                            ? `${it.surge_ratio.toFixed(2)}x`
+                            : "—";
+                    const tseClose =
+                        it.tse_close != null
+                            ? it.tse_close.toLocaleString("ja-JP")
+                            : "—";
+                    const ptsPrice =
+                        it.pts_price != null
+                            ? it.pts_price.toLocaleString("ja-JP")
+                            : "—";
+                    return `
+          <tr>
+            <td><a href="${it.kabutan_url}" target="_blank" rel="noopener noreferrer">${it.code}</a></td>
+            <td>${it.name}</td>
+            <td>${it.market}</td>
+            <td class="num">${tseClose}</td>
+            <td class="num">${ptsPrice}</td>
+            <td class="num ${cls}">${changePctStr}</td>
+            <td class="num">${ptsVolK}</td>
+            <td class="num">${avgVolK}</td>
+            <td class="num pos">${surgeStr}</td>
+          </tr>`;
+                })
+                .join("");
 
-            /**
-             * ページロード時のエントリポイント。
-             * 全セクションの API を並列 fetch し、それぞれ個別に描画/エラー処理する。
-             */
-            async function init() {
-                // 全セクションにローディング表示
-                [
-                    "prediction",
-                    "today-pred",
-                    "n225-pred",
-                    "us-market",
-                    "adr",
-                    "features",
-                    "history",
-                ].forEach(showLoading);
+            content.innerHTML = `
+        <div class="table-wrap">
+          <table class="pts-table">
+            <thead>
+              <tr>
+                <th scope="col">コード</th>
+                <th scope="col">銘柄名</th>
+                <th scope="col">市場</th>
+                <th scope="col">TSE終値</th>
+                <th scope="col">PTS価格</th>
+                <th scope="col">乖離率</th>
+                <th scope="col">PTS出来高(千株)</th>
+                <th scope="col">30日平均(千株)</th>
+                <th scope="col">サージ比</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+            showContent("pts-surge");
+        }
 
-                // ヘッダーは即時更新 (現在時刻ベース)
-                updateHeader(
-                    new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString(),
-                );
+        // ===== renderPolymarket =====
 
-                // 全 API を並列 fetch
-                const [
-                    dayTradeResult,
-                    latestPredResult,
-                    n225PredResult,
-                    usMarketResult,
-                    adrResult,
-                    featuresResult,
-                    historyResult,
-                ] = await Promise.allSettled([
-                    fetchDayTradeList(),
-                    fetchLatestPrediction(),
-                    fetchN225Predictions(),
-                    fetchUSMarket(),
-                    fetchAdrDeviation(),
-                    fetchFeatureContributions(),
-                    fetchAccuracyHistory(),
-                ]);
+        function renderPolymarket(data) {
+            const content = document.getElementById("polymarket-content");
+            if (!content) return;
 
-                // 各セクションを個別にハンドリング
-                const handle = (sectionId, result, renderer) => {
-                    if (result.status === "fulfilled") {
-                        try {
-                            renderer(result.value);
-                        } catch (e) {
-                            console.error(`render ${sectionId} failed`, e);
-                            showError(sectionId, "描画に失敗しました。");
-                        }
-                    } else {
-                        showError(sectionId, errorMessageFor(result.reason));
+            // available=false (= マスタ語句で event がマッチしなかった or
+            // main_outcome_match が outcomes に該当しなかった) は除外
+            const items = (data.items || []).filter((it) => it.available);
+
+            if (items.length === 0) {
+                content.innerHTML = `<p class="hint">表示できるマーケットがありません。</p>`;
+                showContent("polymarket");
+                return;
+            }
+
+            const cards = items
+                .map((it) => {
+                    const m = it.main_outcome || {};
+                    const probPct =
+                        typeof m.probability === "number"
+                            ? (m.probability * 100).toFixed(1) + "%"
+                            : "—";
+                    const outcomeName = m.name_jp || m.name || "";
+                    const linkHtml = it.polymarket_url
+                        ? `<a class="polymarket-card__link" href="${it.polymarket_url}" target="_blank" rel="noopener noreferrer">Polymarket で開く ↗</a>`
+                        : "";
+                    return `
+          <div class="polymarket-card">
+            ${it.category ? `<div class="polymarket-card__category">${it.category}</div>` : ""}
+            <div class="polymarket-card__label">${it.label || ""}</div>
+            <div class="polymarket-card__prob">${probPct}</div>
+            <div class="polymarket-card__outcome">${outcomeName}</div>
+            ${it.description_jp ? `<div class="polymarket-card__desc">${it.description_jp}</div>` : ""}
+            ${it.impact_on_n225 ? `<div class="polymarket-card__impact">N225への影響: ${it.impact_on_n225}</div>` : ""}
+            ${linkHtml}
+          </div>`;
+                })
+                .join("");
+
+            content.innerHTML = `<div class="polymarket-grid">${cards}</div>`;
+            showContent("polymarket");
+        }
+
+        // ===== エラーメッセージ生成ヘルパー =====
+
+        /**
+         * fetch エラーをユーザ向けメッセージに変換する。
+         * 404 はデータ未生成扱いの専用文言、それ以外は汎用メッセージ。
+         */
+        function errorMessageFor(err) {
+            if (err && err.status === 404) {
+                return "データがまだありません。";
+            }
+            if (!err || err.status === 503 || !err.status) {
+                return "データの取得に失敗しました。しばらく後に再読み込みしてください。";
+            }
+            return "予期しないエラーが発生しました。";
+        }
+
+        // ===== init =====
+
+        /**
+         * ページロード時のエントリポイント。
+         * 全セクションの API を並列 fetch し、それぞれ個別に描画/エラー処理する。
+         */
+        async function init() {
+            // 全セクションにローディング表示
+            [
+                "prediction",
+                "pts-overnight",
+                "pts-premarket",
+                "pts-surge",
+                "today-pred",
+                "n225-pred",
+                "us-market",
+                "adr",
+                "polymarket",
+                "features",
+                "history",
+            ].forEach(showLoading);
+
+            // ヘッダーは即時更新 (現在時刻ベース)
+            updateHeader(
+                new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString(),
+            );
+
+            // 全 API を並列 fetch
+            const [
+                dayTradeResult,
+                latestPredResult,
+                n225PredResult,
+                usMarketResult,
+                adrResult,
+                featuresResult,
+                historyResult,
+                ptsOvernightResult,
+                ptsPremarketResult,
+                ptsSurgeResult,
+                polymarketResult,
+            ] = await Promise.allSettled([
+                fetchDayTradeList(),
+                fetchLatestPrediction(),
+                fetchN225Predictions(),
+                fetchUSMarket(),
+                fetchAdrDeviation(),
+                fetchFeatureContributions(),
+                fetchAccuracyHistory(),
+                fetchPtsOvernight(),
+                fetchPtsPremarket(),
+                fetchPtsVolumeSurge(),
+                fetchPolymarket(),
+            ]);
+
+            // 各セクションを個別にハンドリング
+            const handle = (sectionId, result, renderer) => {
+                if (result.status === "fulfilled") {
+                    try {
+                        renderer(result.value);
+                    } catch (e) {
+                        console.error(`render ${sectionId} failed`, e);
+                        showError(sectionId, "描画に失敗しました。");
                     }
-                };
+                } else {
+                    showError(sectionId, errorMessageFor(result.reason));
+                }
+            };
 
-                handle("prediction", dayTradeResult, renderDayTradeList);
-                handle("today-pred", latestPredResult, renderLatestPrediction);
-                handle("n225-pred", n225PredResult, renderN225Predictions);
-                handle("us-market", usMarketResult, renderUSMarketSection);
-                handle("adr", adrResult, renderADRTable);
-                handle("features", featuresResult, renderFeatureChart);
-                handle("history", historyResult, renderHistoryTable);
-            }
+            handle("prediction", dayTradeResult, renderDayTradeList);
+            handle("today-pred", latestPredResult, renderLatestPrediction);
+            handle("n225-pred", n225PredResult, renderN225Predictions);
+            handle("us-market", usMarketResult, renderUSMarketSection);
+            handle("adr", adrResult, renderADRTable);
+            handle("features", featuresResult, renderFeatureChart);
+            handle("history", historyResult, renderHistoryTable);
+            handle(
+                "pts-overnight",
+                ptsOvernightResult,
+                renderPtsOvernight,
+            );
+            handle(
+                "pts-premarket",
+                ptsPremarketResult,
+                renderPtsPremarket,
+            );
+            handle("pts-surge", ptsSurgeResult, renderPtsVolumeSurge);
+            handle("polymarket", polymarketResult, renderPolymarket);
+        }
 
-            // ページロード時に init() を実行
-            document.addEventListener("DOMContentLoaded", init);
-        </script>
-    </body>
+        // ページロード時に init() を実行
+        document.addEventListener("DOMContentLoaded", init);
+    </script>
+</body>
+
 </html>
