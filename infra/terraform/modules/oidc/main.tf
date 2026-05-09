@@ -113,6 +113,25 @@ resource "aws_iam_role_policy" "ecs_deploy" {
   })
 }
 
+# CloudFront キャッシュ無効化権限ポリシー（フロント変更を即座に反映するため）
+resource "aws_iam_role_policy" "cloudfront_invalidation" {
+  name = "cloudfront-invalidation"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # distribution_id は app モジュールで生成されるため oidc モジュールからは参照できない。
+        # CD 専用ロールのため、アカウント内のすべての distribution を対象としても影響範囲は限定的。
+        Effect   = "Allow"
+        Action   = "cloudfront:CreateInvalidation"
+        Resource = "*"
+      },
+    ]
+  })
+}
+
 # ECR push 権限ポリシー
 resource "aws_iam_role_policy" "ecr_push" {
   name = "ecr-push"
