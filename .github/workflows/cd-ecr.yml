@@ -81,3 +81,12 @@ jobs:
           aws ecs wait services-stable \
             --cluster ${{ vars.ECS_CLUSTER_NAME }} \
             --services ${{ vars.ECS_SERVICE_NAME }}
+
+      - name: CloudFront キャッシュ無効化
+        # nginx 内の静的ファイル（front/）は CloudFront にキャッシュされるため、
+        # ECS 更新後にエッジキャッシュを無効化しないと変更が反映されない
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*" \
+            --no-cli-pager

@@ -131,7 +131,7 @@ terraform apply
 | ワークフロー | トリガー | 内容 |
 |---|---|---|
 | `.github/workflows/ci.yml` | PR → develop または develop → main PR | Dockerfile を Hadolint で lint |
-| `.github/workflows/cd-ecr.yml` | develop → main PR のマージ | nginx・api・inference イメージをビルドして ECR に push → ECS サービスを自動更新 |
+| `.github/workflows/cd-ecr.yml` | develop → main PR のマージ | nginx・api・inference イメージをビルドして ECR に push → ECS サービスを自動更新 → CloudFront キャッシュ無効化 |
 
 CD に必要な GitHub Repository Variables（Settings → Secrets and variables → Actions → Variables）:
 
@@ -142,6 +142,7 @@ CD に必要な GitHub Repository Variables（Settings → Secrets and variables
 | `USE_REAL_INFERENCE` | `false`（サンプル）/ `true`（本番） |
 | `ECS_CLUSTER_NAME` | `auto-trade-repo-cluster` |
 | `ECS_SERVICE_NAME` | `auto-trade-repo-service` |
+| `CLOUDFRONT_DISTRIBUTION_ID` | `terraform output cloudfront_distribution_id` の出力値 |
 
 ## 推論コンテナ（inference）
 
